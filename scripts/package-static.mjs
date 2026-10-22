@@ -19,7 +19,6 @@ if (!fs.existsSync(indexHtml)) {
   process.exit(1);
 }
 
-// إذا كان الملف موجوداً سابقاً نقوم بحذفه
 if (fs.existsSync(zipFile)) {
   fs.unlinkSync(zipFile);
 }
@@ -27,11 +26,16 @@ if (fs.existsSync(zipFile)) {
 const isWindows = process.platform === 'win32';
 
 if (isWindows) {
-  // ضغط محتويات مجلد out فقط دون المجلد نفسه ودون source code أو node_modules
-  const psCommand = `Compress-Archive -Path "${outDir}\\*" -DestinationPath "${zipFile}" -Force`;
-  const res = spawnSync('powershell.exe', ['-NoProfile', '-Command', psCommand], {
+  const psArgs = [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    `Get-ChildItem -Path '${outDir}' -Force | Compress-Archive -DestinationPath '${zipFile}' -Force`,
+  ];
+  const res = spawnSync('powershell.exe', psArgs, {
     stdio: 'inherit',
-    shell: true,
+    shell: false,
   });
 
   if (res.status !== 0) {
@@ -39,8 +43,7 @@ if (isWindows) {
     process.exit(res.status ?? 1);
   }
 } else {
-  // في Linux أو macOS
-  const res = spawnSync('sh', ['-c', `cd "${outDir}" && zip -r "${zipFile}" ./*`], {
+  const res = spawnSync('sh', ['-c', `cd "${outDir}" && zip -r "${zipFile}" ./* ./.* -x "./." -x "./.."`], {
     stdio: 'inherit',
   });
 
@@ -53,4 +56,4 @@ if (isWindows) {
 const stats = fs.statSync(zipFile);
 const sizeKb = (stats.size / 1024).toFixed(1);
 console.log(`✅ تم إنشاء حزمة النشر بنجاح: mycrmsalon-static.zip (${sizeKb} KB)`);
-console.log('✨ تحتوي الحزمة على محتويات out/ المباشرة وجاهزة للرفع إلى public_html على Hostinger.');
+console.log('✨ تحتوي الحزمة على محتويات out/ المباشرة (شاملة .htaccess) وجاهزة للرفع إلى public_html على Hostinger.');
