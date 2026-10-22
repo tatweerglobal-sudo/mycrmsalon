@@ -1,6 +1,7 @@
 // scripts/migrate.ts
 // تشغيل وترقية مخطط قاعدة البيانات للـ SaaS مع تتبع الإصدارات والمعاملات الآمنة
 
+import '../src/lib/load-env';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Pool } from 'pg';

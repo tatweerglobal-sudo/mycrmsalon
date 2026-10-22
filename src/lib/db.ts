@@ -1,4 +1,5 @@
 import { Pool, PoolClient } from 'pg';
+import './load-env';
 
 let globalPool: Pool | null = null;
 let migrationPool: Pool | null = null;
