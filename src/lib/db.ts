@@ -7,13 +7,19 @@ export function getDbPool(): Pool {
     return globalPool;
   }
 
-  const connectionString =
-    process.env.NODE_ENV === 'test' && process.env.SALON_TEST_DATABASE_URL
-      ? process.env.SALON_TEST_DATABASE_URL
-      : process.env.SALON_DATABASE_URL;
+  // Never let tests fall back to the salon production database.
+  const isTest = process.env.NODE_ENV === 'test';
+  const connectionString = isTest
+    ? process.env.SALON_TEST_DATABASE_URL
+    : process.env.SALON_DATABASE_URL;
 
   if (!connectionString) {
-    throw new Error('SALON_DATABASE_URL must refer to the separate My CRM Salon database.');
+    throw new Error(isTest
+      ? 'SALON_TEST_DATABASE_URL is required for database tests.'
+      : 'SALON_DATABASE_URL must refer to the separate My CRM Salon database.');
+  }
+  if (isTest && process.env.SALON_DATABASE_URL === connectionString) {
+    throw new Error('Test and production databases must never share credentials.');
   }
 
   globalPool = new Pool({
