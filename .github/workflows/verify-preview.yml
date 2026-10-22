@@ -28,3 +28,5 @@ jobs:
         run: npm test
       - name: Next.js build
         run: npm run build
+      - name: Next.js static export build
+        run: npm run build:static

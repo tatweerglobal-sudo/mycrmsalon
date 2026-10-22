@@ -38,7 +38,17 @@ npm run typecheck
 npm test
 npm run build
 npm run dev
+
+# Static Export (للنشر المباشر على Hostinger بدون خادم Node.js)
+npm run build:static     # بناء النسخة الثابتة داخل مجلد out/
+npm run package:static   # ضغط محتويات out في ملف mycrmsalon-static.zip للرفع المباشر
 ```
+
+### النشر على Hostinger (dev.crmsalon.de / crmsalon.de):
+1. قم بتشغيل `npm run build:static` ثم `npm run package:static`.
+2. يتم إنتاج ملف `mycrmsalon-static.zip` يحتوي محتويات مجلد `out` فقط (بما في ذلك `index.html` وملفات `_next/static`).
+3. افتح مدير الملفات (File Manager) في Hostinger للدومين المطلوب وافتح مجلد `public_html`.
+4. ارفع ملف `mycrmsalon-static.zip` وفك ضغطه داخل `public_html` مباشرة، بحيث يكون ملف `index.html` في جذر المجلد.
 
 The first install generates a new lockfile; commit it after review. Do not add real secrets to Git.
 

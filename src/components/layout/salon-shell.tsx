@@ -68,16 +68,21 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
           { href: '/customers', label: 'العملاء', icon: '👥' },
           { href: '/appointments', label: 'الحجوزات', icon: '📅' },
           { href: '/services', label: 'الخدمات', icon: '✨' },
-        ].map(item => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={'flex min-h-12 flex-col items-center justify-center rounded-lg text-xs ' +
-              (pathname === item.href ? 'bg-rose-50 font-black text-rose-800' : 'text-slate-500')}
-          >
-            <span className="text-lg">{item.icon}</span><span>{item.label}</span>
-          </Link>
-        ))}
+        ].map(item => {
+          const cleanPath = pathname === '/' ? '/' : (pathname?.replace(/\/$/, '') || '/');
+          const cleanHref = item.href === '/' ? '/' : item.href.replace(/\/$/, '');
+          const isCurrent = cleanPath === cleanHref;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={'flex min-h-12 flex-col items-center justify-center rounded-lg text-xs ' +
+                (isCurrent ? 'bg-rose-50 font-black text-rose-800' : 'text-slate-500')}
+            >
+              <span className="text-lg">{item.icon}</span><span>{item.label}</span>
+            </Link>
+          );
+        })}
       </nav>
     </div>
   );

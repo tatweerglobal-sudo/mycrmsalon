@@ -12,8 +12,10 @@ interface NavLinkProps {
 }
 
 export default function NavLink({ href, label, icon, badge, disabled }: NavLinkProps) {
-  const pathname = usePathname();
-  const isActive = pathname === href || (href !== '/' && pathname.startsWith(href));
+  const pathname = usePathname() || '/';
+  const cleanPath = pathname === '/' ? '/' : pathname.replace(/\/$/, '');
+  const cleanHref = href === '/' ? '/' : href.replace(/\/$/, '');
+  const isActive = cleanPath === cleanHref || (cleanHref !== '/' && cleanPath.startsWith(cleanHref));
 
   if (disabled) {
     return (
@@ -32,7 +34,7 @@ export default function NavLink({ href, label, icon, badge, disabled }: NavLinkP
       href={href}
       className={`flex items-center justify-between px-4 py-3 rounded-lg transition-colors my-1 ${
         isActive
-          ? 'bg-rose-600 text-white font-semibold shadow-sm'
+          ? 'bg-rose-700 text-white font-bold shadow-sm'
           : 'text-slate-700 hover:bg-slate-100 hover:text-rose-700'
       }`}
     >
@@ -43,7 +45,7 @@ export default function NavLink({ href, label, icon, badge, disabled }: NavLinkP
       {badge && (
         <span
           className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-            isActive ? 'bg-rose-700 text-white' : 'bg-rose-100 text-rose-800'
+            isActive ? 'bg-rose-800 text-white' : 'bg-rose-100 text-rose-800'
           }`}
         >
           {badge}
