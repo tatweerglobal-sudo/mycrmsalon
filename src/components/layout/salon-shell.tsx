@@ -2,14 +2,63 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import NavLink from './nav-link';
 import { salonSections } from '@/lib/salon-sections';
 
+interface AuthProfile {
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    isSuperAdmin: boolean;
+  };
+  activeTenant: {
+    id: string;
+    role: string;
+    branchId: string | null;
+  } | null;
+}
+
 export default function SalonShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profile, setProfile] = useState<AuthProfile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const pathname = usePathname();
+  const router = useRouter();
+
   useEffect(() => setMenuOpen(false), [pathname]);
+
+  const checkAuth = async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data);
+      } else {
+        setProfile(null);
+      }
+    } catch (_err) {
+      setProfile(null);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    checkAuth();
+  }, [pathname]);
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setProfile(null);
+      router.push('/login');
+      router.refresh();
+    } catch (_err) {
+      // ignore
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50" dir="rtl">
@@ -27,7 +76,7 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
       }>
         <div className="p-5 border-b border-rose-100">
           <Link href="/" className="text-xl font-black text-rose-800">My CRM Salon</Link>
-          <p className="mt-1 text-xs text-slate-500">إدارة مراكز التجميل — نسخة التطوير</p>
+          <p className="mt-1 text-xs text-slate-500">إدارة مراكز التجميل المتكاملة</p>
         </div>
         <nav className="p-3" aria-label="القائمة الرئيسية">
           <NavLink href="/" label="لوحة التحكم" icon={<span>🏠</span>} />
@@ -35,8 +84,19 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
             <NavLink key={item.slug} href={'/' + item.slug} label={item.label} icon={<span>{item.icon}</span>} />
           ))}
         </nav>
-        <div className="m-4 rounded-xl bg-rose-50 p-3 text-xs leading-6 text-rose-900">
-          بيئة تأسيسية فقط. لم يتم ربط قاعدة بيانات أو تفعيل تسجيل الدخول.
+
+        <div className="m-4 rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-xs leading-6 text-rose-950">
+          {profile ? (
+            <div>
+              <p className="font-bold text-rose-900">✨ الجلسة نشطة ومؤمنة</p>
+              <p className="mt-1 text-slate-600">الدور: {profile.activeTenant?.role === 'salon_owner' ? 'مالكة الصالون' : profile.activeTenant?.role || 'مستخدم معتمد'}</p>
+            </div>
+          ) : (
+            <div>
+              <p className="font-bold text-rose-900">🔒 نظام متعدد المراكز</p>
+              <p className="mt-1 text-slate-600">سجّل دخولك للوصول إلى إدارة العملاء والمواعيد وصلاحيات المركز.</p>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -53,10 +113,33 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
             <Link href="/" className="text-lg font-black text-rose-800 lg:hidden">My CRM Salon</Link>
             <span className="hidden text-sm font-bold text-slate-800 lg:inline">نظام إدارة مراكز التجميل</span>
           </div>
-          <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900">
-            قيد التطوير
-          </span>
+
+          <div className="flex items-center gap-3">
+            {!authLoading && profile ? (
+              <div className="flex items-center gap-2 sm:gap-4">
+                <div className="hidden text-left text-xs leading-tight sm:block">
+                  <p className="font-bold text-slate-900">{profile.user.name}</p>
+                  <p className="text-[11px] text-slate-500">{profile.user.email}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-800 shadow-sm transition hover:bg-rose-100"
+                >
+                  تسجيل الخروج
+                </button>
+              </div>
+            ) : !authLoading ? (
+              <Link
+                href="/login"
+                className="rounded-xl bg-rose-700 px-4 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-rose-800"
+              >
+                تسجيل الدخول
+              </Link>
+            ) : null}
+          </div>
         </header>
+
         <main className="mx-auto min-h-[calc(100vh-4rem)] w-full max-w-7xl px-4 pb-28 pt-6 sm:px-6 lg:pb-8">
           {children}
         </main>

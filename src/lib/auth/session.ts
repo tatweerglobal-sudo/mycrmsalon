@@ -122,6 +122,12 @@ export async function validateSessionState(
   try {
     await client.query('BEGIN');
 
+    // ضبط سياق الجلسة للمستخدم والمستأجر لضمان عمل RLS على جداول users و tenants و memberships
+    await client.query(
+      "SELECT set_config('app.current_user_id', $1, true), set_config('app.current_tenant_id', $2, true)",
+      [session.userId, session.tenantId]
+    );
+
     // 1. فحص المستخدم وإصدار التوكن وقفل الحساب
     const userRes = await client.query(
       `SELECT is_active, locked_until, token_version FROM users WHERE id = $1`,

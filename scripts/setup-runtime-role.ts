@@ -90,12 +90,15 @@ export async function setupRuntimeRole(providedPassword?: string): Promise<Setup
         BEGIN
           IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tenants') THEN
             EXECUTE 'REVOKE ALL ON TABLE tenants FROM salon_app_role';
-            EXECUTE 'GRANT SELECT, UPDATE ON TABLE tenants TO salon_app_role';
+            EXECUTE 'GRANT SELECT ON TABLE tenants TO salon_app_role';
+            EXECUTE 'GRANT UPDATE (name, timezone, currency, contact_phone, contact_email, settings, updated_at) ON TABLE tenants TO salon_app_role';
           END IF;
 
           IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users') THEN
             EXECUTE 'REVOKE ALL ON TABLE users FROM salon_app_role';
-            EXECUTE 'GRANT SELECT, INSERT, UPDATE ON TABLE users TO salon_app_role';
+            EXECUTE 'GRANT SELECT ON TABLE users TO salon_app_role';
+            EXECUTE 'GRANT INSERT (id, email, phone_normalized, full_name, password_hash, is_active, token_version) ON TABLE users TO salon_app_role';
+            EXECUTE 'GRANT UPDATE (full_name, phone_normalized, password_hash, token_version, last_login_at, failed_login_attempts, locked_until, updated_at) ON TABLE users TO salon_app_role';
           END IF;
 
           IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '_schema_migrations') THEN

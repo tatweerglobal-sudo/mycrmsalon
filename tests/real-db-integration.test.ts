@@ -9,7 +9,7 @@ import { runMigrations } from '../scripts/migrate';
 import { withTenantDb } from '../src/lib/auth/tenant-context';
 import { validateSessionState, revokeAllUserSessions, type SessionPayload } from '../src/lib/auth/session';
 import { PostgresRateLimiter } from '../src/lib/auth/rate-limiter';
-import { hashPassword } from '../src/lib/auth/password';
+import { hashPassword, verifyPassword } from '../src/lib/auth/password';
 
 let env: RealPostgresEnv;
 let tenant1Id: string;
@@ -35,8 +35,8 @@ after(async () => {
 
 test('Migrations table exists and records applied migrations in real Postgres', async () => {
   const { rows } = await env.adminPool.query('SELECT version, applied_at FROM _schema_migrations');
-  assert.ok(rows.length > 0);
   assert.ok(rows.some((r: { version: string }) => r.version === '001_initial_saas_schema.sql'));
+  assert.ok(rows.some((r: { version: string }) => r.version === '002_security_hardening.sql'));
 });
 
 test('Re-running migrations is idempotent and safe (no re-application or errors)', async () => {
@@ -504,5 +504,103 @@ test('salon_app_role is strictly prohibited from TRUNCATE, schema changes, and r
     return msg.includes('permission denied') || (err as { code?: string }).code === '42501';
   });
 });
+
+// ==============================================================================
+// 4. اختبارات الأمان المتقدم ودوال المصادقة وحماية الأعمدة (Security Hardening & Auth)
+// ==============================================================================
+
+test('salon_app_role cannot escalate privilege by updating is_super_admin or subscription_tier', async () => {
+  // 1. محاولة تعديل is_super_admin في جدول users بواسطة salon_app_role
+  await assert.rejects(async () => {
+    await env.pool.query('UPDATE users SET is_super_admin = true WHERE id = $1', [user1Id]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes('permission denied') || (err as { code?: string }).code === '42501';
+  });
+
+  // 2. محاولة تعديل subscription_tier في جدول tenants بواسطة salon_app_role
+  await assert.rejects(async () => {
+    await env.pool.query("UPDATE tenants SET subscription_tier = 'enterprise' WHERE id = $1", [tenant1Id]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes('permission denied') || (err as { code?: string }).code === '42501';
+  });
+
+  // 3. التحقق من أن القيم لم تتغير
+  const userCheck = await env.adminPool.query('SELECT is_super_admin FROM users WHERE id = $1', [user1Id]);
+  assert.equal(userCheck.rows[0].is_super_admin, false);
+
+  const tenantCheck = await env.adminPool.query('SELECT subscription_tier FROM tenants WHERE id = $1', [tenant1Id]);
+  assert.notEqual(tenantCheck.rows[0].subscription_tier, 'enterprise');
+});
+
+test('auth_lookup_user_for_login retrieves user safely via SECURITY DEFINER function', async () => {
+  // بحث عن مستخدم موجود بحروف كبيرة ومسافات للتأكد من TRIM و LOWER
+  const res = await env.pool.query('SELECT * FROM auth_lookup_user_for_login($1)', ['  OWNER1@NARGES.SA  ']);
+  assert.equal(res.rows.length, 1);
+  assert.equal(res.rows[0].email, 'owner1@narges.sa');
+  assert.equal(res.rows[0].full_name, 'أميرة العتيبي');
+  assert.equal(res.rows[0].is_active, true);
+  assert.equal(res.rows[0].is_super_admin, false);
+  assert.ok(res.rows[0].password_hash);
+
+  // بحث عن مستخدم غير موجود
+  const notFound = await env.pool.query('SELECT * FROM auth_lookup_user_for_login($1)', ['nonexistent@example.com']);
+  assert.equal(notFound.rows.length, 0);
+});
+
+test('auth_record_login_failure increments attempts and locks out account after 5 tries', async () => {
+  // إعادة ضبط المحاولات الفاشلة
+  await env.adminPool.query('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1', [user1Id]);
+
+  // 4 محاولات فاشلة
+  for (let i = 1; i <= 4; i++) {
+    await env.pool.query('SELECT auth_record_login_failure($1)', [user1Id]);
+    const check = await env.adminPool.query('SELECT failed_login_attempts, locked_until FROM users WHERE id = $1', [user1Id]);
+    assert.equal(check.rows[0].failed_login_attempts, i);
+    assert.equal(check.rows[0].locked_until, null);
+  }
+
+  // المحاولة الخامسة تؤدي إلى حظر الحساب (lockout)
+  await env.pool.query('SELECT auth_record_login_failure($1)', [user1Id]);
+  const lockedCheck = await env.adminPool.query('SELECT failed_login_attempts, locked_until FROM users WHERE id = $1', [user1Id]);
+  assert.equal(lockedCheck.rows[0].failed_login_attempts, 5);
+  assert.ok(lockedCheck.rows[0].locked_until !== null);
+  const lockTime = new Date(lockedCheck.rows[0].locked_until).getTime();
+  assert.ok(lockTime > Date.now());
+
+  // تسجيل دخول ناجح يعيد تصفير العداد والحظر
+  await env.pool.query('SELECT auth_record_login_success($1)', [user1Id]);
+  const resetCheck = await env.adminPool.query('SELECT failed_login_attempts, locked_until, last_login_at FROM users WHERE id = $1', [user1Id]);
+  assert.equal(resetCheck.rows[0].failed_login_attempts, 0);
+  assert.equal(resetCheck.rows[0].locked_until, null);
+  assert.ok(resetCheck.rows[0].last_login_at !== null);
+});
+
+test('auth_get_user_tenants returns active memberships and salon details', async () => {
+  const res = await env.pool.query('SELECT * FROM auth_get_user_tenants($1)', [user1Id]);
+  assert.equal(res.rows.length, 1);
+  assert.equal(res.rows[0].tenant_id, tenant1Id);
+  assert.equal(res.rows[0].tenant_name, 'صالون النرجس');
+  assert.equal(res.rows[0].role, 'salon_owner');
+  assert.equal(res.rows[0].membership_active, true);
+});
+
+test('bcrypt password hashing and verification enforces minimum length and valid matching', async () => {
+  await assert.rejects(async () => {
+    await hashPassword('short');
+  }, /يجب أن تتكون كلمة المرور من 12 حرفاً على الأقل/);
+
+  const plain = 'VeryStrong!SalonSecret2026';
+  const hashed = await hashPassword(plain);
+  assert.ok(hashed.startsWith('$2'));
+
+  const valid = await verifyPassword(plain, hashed);
+  assert.equal(valid, true);
+
+  const invalid = await verifyPassword('WrongPassword123!', hashed);
+  assert.equal(invalid, false);
+});
+
 
 

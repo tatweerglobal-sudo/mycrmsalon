@@ -108,3 +108,26 @@ test('Migration contains no hardcoded credentials or references to outside datab
   assert.equal(sql.includes('salon_app_secret_test_pass'), false);
   assert.equal(/PASSWORD\s+'[^']+'/i.test(sql), false);
 });
+
+test('Migration 002 enforces security hardening on tenants, users, and auth functions', () => {
+  const migrationPath = path.join(process.cwd(), 'migrations', '002_security_hardening.sql');
+  assert.ok(fs.existsSync(migrationPath), 'ملف الترقية 002_security_hardening.sql يجب أن يكون موجوداً.');
+
+  const sql = fs.readFileSync(migrationPath, 'utf-8');
+
+  // التحقق من FORCE RLS على tenants و users
+  assert.ok(sql.includes('ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;'));
+  assert.ok(sql.includes('ALTER TABLE tenants FORCE ROW LEVEL SECURITY;'));
+  assert.ok(sql.includes('ALTER TABLE users ENABLE ROW LEVEL SECURITY;'));
+  assert.ok(sql.includes('ALTER TABLE users FORCE ROW LEVEL SECURITY;'));
+
+  // التحقق من سياسات العزل
+  assert.ok(sql.includes('tenant_isolation_tenants_select'));
+  assert.ok(sql.includes('user_isolation_select'));
+
+  // التحقق من تقييد الأعمدة
+  assert.ok(sql.includes('GRANT UPDATE (name, timezone, currency'));
+  assert.ok(sql.includes('auth_lookup_user_for_login'));
+  assert.ok(sql.includes('auth_get_user_tenants'));
+});
+
