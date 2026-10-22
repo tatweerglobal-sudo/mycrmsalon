@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS branches (
     working_days JSONB NOT NULL DEFAULT '[0,1,2,3,4,5,6]'::jsonb, -- 0=Sun, 6=Sat
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_tenant_branch_name UNIQUE (tenant_id, name)
+    CONSTRAINT uq_tenant_branch_name UNIQUE (tenant_id, name),
+    CONSTRAINT uq_branches_tenant_id UNIQUE (tenant_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_branches_tenant ON branches(tenant_id);
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_active BOOLEAN NOT NULL DEFAULT true,
     failed_login_attempts INT NOT NULL DEFAULT 0,
     locked_until TIMESTAMPTZ,
+    token_version INT NOT NULL DEFAULT 1, -- لدعم الإبطال الفوري للجلسات (Session Revocation)
     last_login_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -78,24 +80,20 @@ CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_normalized);
 
 -- ============================================================================
 -- 5. جدول العضويات والصلاحيات (Memberships / Tenant Users)
--- يربط المستخدم بمركز تجميل محدد مع دوره والفرع المخصص
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS memberships (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role VARCHAR(50) NOT NULL,
-    -- الأدوار المعتمدة:
-    -- 'salon_owner': مالك المركز (كامل الصلاحيات)
-    -- 'salon_manager': مدير المركز
-    -- 'receptionist': موظف استقبال (حجوزات وعملاء)
-    -- 'beauty_specialist': خبيرة تجميل (مواعيدها وخدماتها)
-    -- 'accountant': محاسب (فواتير وتقارير مالية)
-    branch_id UUID REFERENCES branches(id) ON DELETE SET NULL,
+    branch_id UUID,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_tenant_user UNIQUE (tenant_id, user_id),
+    CONSTRAINT uq_memberships_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_membership_branch FOREIGN KEY (tenant_id, branch_id)
+        REFERENCES branches(tenant_id, id) ON DELETE SET NULL,
     CONSTRAINT chk_valid_role CHECK (role IN (
         'salon_owner',
         'salon_manager',
@@ -115,36 +113,39 @@ CREATE INDEX IF NOT EXISTS idx_memberships_role ON memberships(tenant_id, role);
 CREATE TABLE IF NOT EXISTS salon_staff (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    branch_id UUID NOT NULL,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     display_name VARCHAR(255) NOT NULL,
-    title VARCHAR(150), -- e.g. 'أخصائية عناية بالبشرة', 'خبيرة شعر ومكياج'
-    commission_rate NUMERIC(5,2) NOT NULL DEFAULT 0.00, -- نسبة العمولة %
+    title VARCHAR(150),
+    commission_rate NUMERIC(5,2) NOT NULL DEFAULT 0.00,
     color_code VARCHAR(10) NOT NULL DEFAULT '#9d174d',
     is_active BOOLEAN NOT NULL DEFAULT true,
     schedule_config JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_staff_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_staff_tenant_branch FOREIGN KEY (tenant_id, branch_id)
+        REFERENCES branches(tenant_id, id) ON DELETE CASCADE,
     CONSTRAINT chk_commission_rate CHECK (commission_rate >= 0 AND commission_rate <= 100)
 );
 
 CREATE INDEX IF NOT EXISTS idx_staff_tenant ON salon_staff(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_staff_branch ON salon_staff(branch_id);
+CREATE INDEX IF NOT EXISTS idx_staff_branch ON salon_staff(tenant_id, branch_id);
 
 -- ============================================================================
 -- 7. جدول العملاء (Customers CRM)
--- رقم الهاتف فريد على مستوى المستأجر الواحد وليس عالمياً
+-- رقم الهاتف فريد على مستوى المستأجر الواحد فقط
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS customers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     full_name VARCHAR(255) NOT NULL,
     phone_raw VARCHAR(50),
-    phone_normalized VARCHAR(50) NOT NULL, -- بصيغة E.164 الدولية
+    phone_normalized VARCHAR(50) NOT NULL,
     country_code VARCHAR(2) NOT NULL DEFAULT 'SA',
     email VARCHAR(255),
     notes TEXT,
-    preferences TEXT, -- تفضيلات العناية، نوع البشرة، المواد المفضلة
+    preferences TEXT,
     loyalty_points INT NOT NULL DEFAULT 0,
     total_visits INT NOT NULL DEFAULT 0,
     total_spent NUMERIC(10,2) NOT NULL DEFAULT 0.00,
@@ -152,7 +153,8 @@ CREATE TABLE IF NOT EXISTS customers (
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_tenant_customer_phone UNIQUE (tenant_id, phone_normalized)
+    CONSTRAINT uq_tenant_customer_phone UNIQUE (tenant_id, phone_normalized),
+    CONSTRAINT uq_customers_tenant_id UNIQUE (tenant_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_customers_tenant ON customers(tenant_id);
@@ -170,7 +172,8 @@ CREATE TABLE IF NOT EXISTS service_categories (
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_tenant_category_name UNIQUE (tenant_id, name)
+    CONSTRAINT uq_tenant_category_name UNIQUE (tenant_id, name),
+    CONSTRAINT uq_categories_tenant_id UNIQUE (tenant_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_categories_tenant ON service_categories(tenant_id);
@@ -181,62 +184,76 @@ CREATE INDEX IF NOT EXISTS idx_categories_tenant ON service_categories(tenant_id
 CREATE TABLE IF NOT EXISTS services (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    category_id UUID REFERENCES service_categories(id) ON DELETE SET NULL,
+    category_id UUID,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     duration_minutes INT NOT NULL DEFAULT 30,
-    buffer_minutes INT NOT NULL DEFAULT 0, -- وقت راحة أو تعقيم بعد الجلسة
+    buffer_minutes INT NOT NULL DEFAULT 0,
     price NUMERIC(10,2) NOT NULL,
     is_package BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_tenant_service_name UNIQUE (tenant_id, name),
+    CONSTRAINT uq_services_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_services_tenant_category FOREIGN KEY (tenant_id, category_id)
+        REFERENCES service_categories(tenant_id, id) ON DELETE SET NULL,
     CONSTRAINT chk_service_price CHECK (price >= 0),
     CONSTRAINT chk_service_duration CHECK (duration_minutes > 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_services_tenant ON services(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_services_category ON services(category_id);
+CREATE INDEX IF NOT EXISTS idx_services_category ON services(tenant_id, category_id);
 
 -- ============================================================================
 -- 10. جدول ربط الخبيرات بالخدمات (Staff Services)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS staff_services (
-    staff_id UUID NOT NULL REFERENCES salon_staff(id) ON DELETE CASCADE,
-    service_id UUID NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+    staff_id UUID NOT NULL,
+    service_id UUID NOT NULL,
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    custom_price NUMERIC(10,2), -- سعر خاص إذا كان للخبير تسعير مختلف
+    custom_price NUMERIC(10,2),
     custom_duration_minutes INT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (staff_id, service_id)
+    PRIMARY KEY (staff_id, service_id),
+    CONSTRAINT fk_staffsrv_staff FOREIGN KEY (tenant_id, staff_id)
+        REFERENCES salon_staff(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT fk_staffsrv_service FOREIGN KEY (tenant_id, service_id)
+        REFERENCES services(tenant_id, id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_staff_services_tenant ON staff_services(tenant_id);
 
 -- ============================================================================
 -- 11. جدول الحجوزات والمواعيد (Appointments)
+-- مفاتيح أجنبية مركبة متسقة مع المستأجر تمنع ربط عميل أو فرع من صالون آخر
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS appointments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
-    customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
-    staff_id UUID REFERENCES salon_staff(id) ON DELETE SET NULL,
+    branch_id UUID NOT NULL,
+    customer_id UUID NOT NULL,
+    staff_id UUID,
     starts_at TIMESTAMPTZ NOT NULL,
     ends_at TIMESTAMPTZ NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'booked',
-    -- 'booked', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'
     cancellation_reason TEXT,
     cancelled_at TIMESTAMPTZ,
     total_price NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     discount_amount NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     final_price NUMERIC(10,2) NOT NULL DEFAULT 0.00,
-    payment_status VARCHAR(50) NOT NULL DEFAULT 'unpaid', -- 'unpaid', 'partially_paid', 'paid', 'refunded'
+    payment_status VARCHAR(50) NOT NULL DEFAULT 'unpaid',
     notes TEXT,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_appointments_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_apt_tenant_branch FOREIGN KEY (tenant_id, branch_id)
+        REFERENCES branches(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT fk_apt_tenant_customer FOREIGN KEY (tenant_id, customer_id)
+        REFERENCES customers(tenant_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_apt_tenant_staff FOREIGN KEY (tenant_id, staff_id)
+        REFERENCES salon_staff(tenant_id, id) ON DELETE SET NULL,
     CONSTRAINT chk_appointment_times CHECK (ends_at > starts_at),
     CONSTRAINT chk_appointment_status CHECK (status IN (
         'booked',
@@ -258,17 +275,23 @@ CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(tenant_id, st
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS appointment_services (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    appointment_id UUID NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
-    service_id UUID NOT NULL REFERENCES services(id) ON DELETE RESTRICT,
+    appointment_id UUID NOT NULL,
+    service_id UUID NOT NULL,
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    staff_id UUID REFERENCES salon_staff(id) ON DELETE SET NULL,
+    staff_id UUID,
     price NUMERIC(10,2) NOT NULL,
     duration_minutes INT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_apt_services_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_aptsrv_tenant_appointment FOREIGN KEY (tenant_id, appointment_id)
+        REFERENCES appointments(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT fk_aptsrv_tenant_service FOREIGN KEY (tenant_id, service_id)
+        REFERENCES services(tenant_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_aptsrv_tenant_staff FOREIGN KEY (tenant_id, staff_id)
+        REFERENCES salon_staff(tenant_id, id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_apt_services_apt ON appointment_services(appointment_id);
-CREATE INDEX IF NOT EXISTS idx_apt_services_tenant ON appointment_services(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_apt_services_apt ON appointment_services(tenant_id, appointment_id);
 
 -- ============================================================================
 -- 13. سجل التدقيق والحماية (Audit Logs)
@@ -290,47 +313,112 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_time ON audit_logs(tenant_id, c
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
 
 -- ============================================================================
--- 14. تفعيل أمان الصفوف (PostgreSQL Row-Level Security - RLS)
+-- 14. جدول محدد معدل الطلبات الموزع (auth_rate_limits)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS auth_rate_limits (
+    key VARCHAR(255) PRIMARY KEY,
+    attempts INT NOT NULL DEFAULT 1,
+    first_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 15. إنشاء دور التطبيق المخصص غير المسموح له بتجاوز RLS (Runtime App Role)
+-- ============================================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'salon_app_role') THEN
+    CREATE ROLE salon_app_role WITH LOGIN PASSWORD 'salon_app_secret_test_pass' NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+  END IF;
+END
+$$;
+
+GRANT USAGE ON SCHEMA public TO salon_app_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO salon_app_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO salon_app_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO salon_app_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO salon_app_role;
+
+-- ============================================================================
+-- 16. تفعيل وفرض أمان الصفوف (FORCE ROW LEVEL SECURITY - RLS)
 -- ============================================================================
 ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
-ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
-ALTER TABLE salon_staff ENABLE ROW LEVEL SECURITY;
-ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE service_categories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE services ENABLE ROW LEVEL SECURITY;
-ALTER TABLE staff_services ENABLE ROW LEVEL SECURITY;
-ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE appointment_services ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE branches FORCE ROW LEVEL SECURITY;
 
--- السياسات الأمنية تعتمد على متغير جلسة آمن: `app.current_tenant_id`
--- يتم ضبطه في كل اتصال عبر دالة الـ Backend الموثقة
+ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE memberships FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE salon_staff ENABLE ROW LEVEL SECURITY;
+ALTER TABLE salon_staff FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE service_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_categories FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE services FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE staff_services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff_services FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE appointments FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE appointment_services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE appointment_services FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs FORCE ROW LEVEL SECURITY;
+
+-- سياسات RLS صريحة مع USING (للقراءة والتعديل) و WITH CHECK (للإدخال والتحديث)
 CREATE POLICY tenant_isolation_branches ON branches
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_memberships ON memberships
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_staff ON salon_staff
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_customers ON customers
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_categories ON service_categories
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_services ON services
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_staff_services ON staff_services
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_appointments ON appointments
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_apt_services ON appointment_services
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
 CREATE POLICY tenant_isolation_audit_logs ON audit_logs
-    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);

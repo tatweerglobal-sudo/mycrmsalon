@@ -10,7 +10,6 @@ test('Migration 001 exists and defines all required multi-tenant entities', () =
 
   const sql = fs.readFileSync(migrationPath, 'utf-8');
 
-  // التحقق من وجود الجداول الأساسية
   const requiredTables = [
     'tenants',
     'branches',
@@ -24,6 +23,7 @@ test('Migration 001 exists and defines all required multi-tenant entities', () =
     'appointments',
     'appointment_services',
     'audit_logs',
+    'auth_rate_limits',
   ];
 
   for (const table of requiredTables) {
@@ -36,7 +36,6 @@ test('Migration 001 enforces tenant-scoped customer phone uniqueness', () => {
   const migrationPath = path.join(process.cwd(), 'migrations', '001_initial_saas_schema.sql');
   const sql = fs.readFileSync(migrationPath, 'utf-8');
 
-  // التأكد من وجود القيد الفريد على مستوى (tenant_id, phone_normalized)
   assert.ok(
     sql.includes('uq_tenant_customer_phone UNIQUE (tenant_id, phone_normalized)') ||
     sql.includes('UNIQUE (tenant_id, phone_normalized)'),
@@ -44,7 +43,7 @@ test('Migration 001 enforces tenant-scoped customer phone uniqueness', () => {
   );
 });
 
-test('Migration 001 enables Row-Level Security (RLS) on all tenant-specific tables', () => {
+test('Migration 001 enables and FORCES Row-Level Security (RLS) on all tenant-specific tables', () => {
   const migrationPath = path.join(process.cwd(), 'migrations', '001_initial_saas_schema.sql');
   const sql = fs.readFileSync(migrationPath, 'utf-8');
 
@@ -62,12 +61,34 @@ test('Migration 001 enables Row-Level Security (RLS) on all tenant-specific tabl
   ];
 
   for (const table of rlsTables) {
-    const rlsRegex = new RegExp(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`, 'i');
-    assert.ok(rlsRegex.test(sql), `يجب تفعيل RLS على جدول ${table}.`);
+    const rlsEnable = new RegExp(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`, 'i');
+    const rlsForce = new RegExp(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;`, 'i');
+    assert.ok(rlsEnable.test(sql), `يجب تفعيل ENABLE RLS على جدول ${table}.`);
+    assert.ok(rlsForce.test(sql), `يجب فرض FORCE RLS على جدول ${table}.`);
 
     const policyRegex = new RegExp(`CREATE POLICY.*ON ${table}`, 'i');
     assert.ok(policyRegex.test(sql), `يجب إنشاء سياسة عزل المستأجر لجدول ${table}.`);
   }
+});
+
+test('Migration 001 establishes tenant-consistent composite foreign keys', () => {
+  const migrationPath = path.join(process.cwd(), 'migrations', '001_initial_saas_schema.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf-8');
+
+  assert.ok(sql.includes('uq_branches_tenant_id UNIQUE (tenant_id, id)'));
+  assert.ok(sql.includes('uq_customers_tenant_id UNIQUE (tenant_id, id)'));
+  assert.ok(sql.includes('fk_apt_tenant_customer FOREIGN KEY (tenant_id, customer_id)'));
+  assert.ok(sql.includes('fk_apt_tenant_branch FOREIGN KEY (tenant_id, branch_id)'));
+  assert.ok(sql.includes('fk_staff_tenant_branch FOREIGN KEY (tenant_id, branch_id)'));
+});
+
+test('Migration 001 configures dedicated non-bypassable runtime role', () => {
+  const migrationPath = path.join(process.cwd(), 'migrations', '001_initial_saas_schema.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf-8');
+
+  assert.ok(sql.includes('salon_app_role'));
+  assert.ok(sql.includes('NOBYPASSRLS'));
+  assert.ok(sql.includes('NOSUPERUSER'));
 });
 
 test('Migration contains no hardcoded credentials or references to outside databases', () => {

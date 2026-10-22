@@ -12,7 +12,7 @@ npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 *.tsbuildinfo
-.test-pg-data/
+.test-pg-data*/
 *.zip
 backups/
 *.sql.bak

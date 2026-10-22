@@ -1,0 +1,45 @@
+name: Verify My CRM Salon Phase 1 Core
+
+on:
+  push:
+    branches:
+      - feature/salon-phase-01-core
+  pull_request:
+    branches:
+      - feature/salon-phase-01-core
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout My CRM Salon repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: ESLint check
+        run: npm run lint
+
+      - name: Unit and PostgreSQL Integration Tests
+        run: npm test
+
+      - name: Next.js standard build
+        run: npm run build
+
+      - name: Next.js static export build
+        run: npm run build:static
