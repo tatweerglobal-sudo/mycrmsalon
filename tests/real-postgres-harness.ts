@@ -81,9 +81,8 @@ export async function setupTestPostgres(port = 54338): Promise<RealPostgresEnv> 
       GRANT UPDATE (name, timezone, currency, contact_phone, contact_email, settings, updated_at) ON TABLE tenants TO salon_app_role;
 
       REVOKE ALL ON TABLE users FROM salon_app_role;
-      GRANT SELECT ON TABLE users TO salon_app_role;
-      GRANT INSERT (id, email, phone_normalized, full_name, password_hash, is_active, token_version) ON TABLE users TO salon_app_role;
-      GRANT UPDATE (full_name, phone_normalized, password_hash, token_version, last_login_at, failed_login_attempts, locked_until, updated_at) ON TABLE users TO salon_app_role;
+      GRANT SELECT (id, email, phone_normalized, full_name, is_active, locked_until, token_version, created_at, updated_at) ON TABLE users TO salon_app_role;
+      GRANT UPDATE (full_name, phone_normalized, updated_at) ON TABLE users TO salon_app_role;
     `);
   } finally {
     adminClient.release();

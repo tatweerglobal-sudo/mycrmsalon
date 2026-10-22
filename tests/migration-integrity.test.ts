@@ -131,3 +131,34 @@ test('Migration 002 enforces security hardening on tenants, users, and auth func
   assert.ok(sql.includes('auth_get_user_tenants'));
 });
 
+test('Migration 003 enforces auth security fixes, ephemeral tickets, and session revocation', () => {
+  const migrationPath = path.join(process.cwd(), 'migrations', '003_auth_security_fixes.sql');
+  assert.ok(fs.existsSync(migrationPath), 'ملف الترقية 003_auth_security_fixes.sql يجب أن يكون موجوداً.');
+
+  const sql = fs.readFileSync(migrationPath, 'utf-8');
+
+  // التحقق من إضافة حقول التذاكر اللحظية
+  assert.ok(sql.includes('auth_ticket UUID'));
+  assert.ok(sql.includes('auth_ticket_expires_at TIMESTAMPTZ'));
+
+  // التحقق من تصحيح سياسة تعديل المستخدمين لتقتصر على النفس فقط
+  assert.ok(sql.includes('id = NULLIF(current_setting(\'app.current_user_id\', true), \'\')::uuid'));
+
+  // التحقق من حجب كلمة المرور والتوكنات عن دور التطبيق
+  assert.ok(sql.includes('GRANT SELECT (id, email, phone_normalized, full_name, is_active, locked_until, token_version, created_at, updated_at) ON TABLE users TO salon_app_role;'));
+  assert.ok(sql.includes('GRANT UPDATE (full_name, phone_normalized, updated_at) ON TABLE users TO salon_app_role;'));
+
+  // التحقق من دوال التحقق بالتذاكر وإبطال الجلسات
+  assert.ok(sql.includes('auth_record_login_failure(p_user_id UUID, p_ticket UUID)'));
+  assert.ok(sql.includes('auth_record_login_success(p_user_id UUID, p_ticket UUID)'));
+  assert.ok(sql.includes('auth_revoke_user_sessions(p_user_id UUID)'));
+
+  // التحقق من سحب الصلاحيات الافتراضية عن PUBLIC
+  assert.ok(sql.includes('REVOKE ALL ON FUNCTION auth_lookup_user_for_login(TEXT) FROM PUBLIC;'));
+  assert.ok(sql.includes('REVOKE ALL ON FUNCTION auth_record_login_failure(UUID, UUID) FROM PUBLIC;'));
+  assert.ok(sql.includes('REVOKE ALL ON FUNCTION auth_record_login_success(UUID, UUID) FROM PUBLIC;'));
+  assert.ok(sql.includes('REVOKE ALL ON FUNCTION auth_get_user_tenants(UUID, UUID) FROM PUBLIC;'));
+  assert.ok(sql.includes('REVOKE ALL ON FUNCTION auth_revoke_user_sessions(UUID) FROM PUBLIC;'));
+});
+
+

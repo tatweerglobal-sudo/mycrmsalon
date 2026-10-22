@@ -1,6 +1,6 @@
 // scripts/bootstrap-salon.ts
 // سكريبت التهيئة والتأسيس لحساب صالون أولي ومالك الصالون
-// بدون كلمات مرور ثابتة مع تشفير bcrypt آمن
+// محصن ضد إعادة تعيين كلمة المرور أو تعديل الحسابات القائمة (Idempotent & Safe)
 
 import '../src/lib/load-env';
 import crypto from 'node:crypto';
@@ -15,6 +15,7 @@ export interface BootstrapResult {
   userId: string;
   email: string;
   role: string;
+  isNewUser: boolean;
   generatedPassword?: string;
 }
 
@@ -28,15 +29,15 @@ export async function bootstrapSalon(customPassword?: string): Promise<Bootstrap
   const client = await pool.connect();
 
   const email = (process.env.BOOTSTRAP_OWNER_EMAIL || 'owner@crmsalon.de').toLowerCase().trim();
-  const rawPassword = customPassword || process.env.BOOTSTRAP_OWNER_PASSWORD || crypto.randomBytes(10).toString('base64url') + '@Sa9';
+  const rawPassword = customPassword || process.env.BOOTSTRAP_OWNER_PASSWORD || crypto.randomBytes(12).toString('base64url') + '@Sa9#';
   const salonName = process.env.BOOTSTRAP_SALON_NAME || 'صالون لوتس بيوتي للتزيين النسائي';
   const salonSlug = process.env.BOOTSTRAP_SALON_SLUG || 'lotus-beauty';
 
   try {
-    console.log(`🚀 بدء تهيئة صالون معتمد: "${salonName}" (${salonSlug})...`);
+    console.log(`🚀 بدء فحص/تهيئة صالون معتمد: "${salonName}" (${salonSlug})...`);
     await client.query('BEGIN');
 
-    // 1. إنشاء مركز التجميل (Tenant)
+    // 1. إنشاء مركز التجميل (Tenant) دون تدمير البيانات القائمة
     const tenantRes = await client.query(`
       INSERT INTO tenants (name, slug, country_code, timezone, currency, status, subscription_tier, max_branches, max_staff)
       VALUES ($1, $2, 'SA', 'Asia/Riyadh', 'SAR', 'active', 'growth', 3, 15)
@@ -58,39 +59,45 @@ export async function bootstrapSalon(customPassword?: string): Promise<Bootstrap
 
     const branch = branchRes.rows[0];
 
-    // 3. تشفير كلمة المرور بـ bcrypt (10 rounds)
-    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    // 3. التحقق أولاً من وجود المستخدم لمنع إعادة تعيين كلمة المرور للمستخدم القائم
+    const existingUser = await client.query('SELECT id, email FROM users WHERE LOWER(email) = $1', [email]);
+    let userId: string;
+    let isNewUser = false;
 
-    // 4. إنشاء أو تحديث حساب مالك الصالون
-    const userRes = await client.query(`
-      INSERT INTO users (email, full_name, password_hash, is_active, phone_normalized)
-      VALUES ($1, 'أريج السبيعي (مالكة الصالون)', $2, true, '+966551234567')
-      ON CONFLICT (email) DO UPDATE 
-        SET password_hash = EXCLUDED.password_hash, is_active = true, locked_until = NULL, failed_login_attempts = 0, updated_at = NOW()
-      RETURNING id, email;
-    `, [email, passwordHash]);
+    if (existingUser.rows.length > 0) {
+      userId = existingUser.rows[0].id;
+      console.log(`ℹ️ حساب مالك الصالون (${email}) موجود مسبقاً. تم الحفاظ على كلمة المرور السابقة دون أي تعديل.`);
+    } else {
+      isNewUser = true;
+      const passwordHash = await bcrypt.hash(rawPassword, 12);
+      const userRes = await client.query(`
+        INSERT INTO users (email, full_name, password_hash, is_active, phone_normalized)
+        VALUES ($1, 'أريج السبيعي (مالكة الصالون)', $2, true, '+966551234567')
+        RETURNING id;
+      `, [email, passwordHash]);
+      userId = userRes.rows[0].id;
+      console.log(`✅ تم إنشاء حساب جديد لمالك الصالون.`);
+    }
 
-    const user = userRes.rows[0];
-
-    // 5. ربط العضوية بدور salon_owner
+    // 4. ربط العضوية بدور salon_owner دون تكرار
     await client.query(`
       INSERT INTO memberships (tenant_id, user_id, role, branch_id, is_active)
       VALUES ($1, $2, 'salon_owner', $3, true)
       ON CONFLICT DO NOTHING;
-    `, [tenant.id, user.id, branch.id]);
+    `, [tenant.id, userId, branch.id]);
 
     await client.query('COMMIT');
-    console.log(`✅ تم تأسيس الصالون وربط مالك المركز بنجاح.`);
 
     return {
       tenantId: tenant.id,
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
       branchId: branch.id,
-      userId: user.id,
-      email: user.email,
+      userId,
+      email,
       role: 'salon_owner',
-      generatedPassword: rawPassword,
+      isNewUser,
+      generatedPassword: isNewUser ? rawPassword : undefined,
     };
   } catch (err) {
     await client.query('ROLLBACK');
@@ -104,25 +111,26 @@ export async function bootstrapSalon(customPassword?: string): Promise<Bootstrap
 if (process.argv[1] && process.argv[1].endsWith('bootstrap-salon.ts')) {
   bootstrapSalon()
     .then(async (res) => {
-      const fs = await import('node:fs');
-      const path = await import('node:path');
-      const envPath = path.join(process.cwd(), '.env.local');
+      if (res.isNewUser && res.generatedPassword) {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const envPath = path.join(process.cwd(), '.env.local');
 
-      if (fs.existsSync(envPath) && res.generatedPassword) {
-        const envContent = fs.readFileSync(envPath, 'utf8');
-        if (!envContent.includes('BOOTSTRAP_OWNER_PASSWORD=')) {
-          fs.appendFileSync(envPath, `\nBOOTSTRAP_OWNER_PASSWORD=${res.generatedPassword}\n`);
+        if (fs.existsSync(envPath)) {
+          const envContent = fs.readFileSync(envPath, 'utf8');
+          if (!envContent.includes('BOOTSTRAP_OWNER_PASSWORD=')) {
+            fs.appendFileSync(envPath, `\nBOOTSTRAP_OWNER_PASSWORD=${res.generatedPassword}\n`);
+          }
         }
       }
 
-      console.log('\n--- BOOTSTRAP SALON SUCCESS ---');
+      console.log('\n--- BOOTSTRAP SALON STATUS ---');
       console.log(`Salon Name: ${res.tenantName}`);
       console.log(`Salon Slug: ${res.tenantSlug}`);
-      console.log(`Branch ID:  ${res.branchId}`);
       console.log(`Email:      ${res.email}`);
-      console.log(`Password:   [STORED SECURELY IN .env.local (BOOTSTRAP_OWNER_PASSWORD)]`);
+      console.log(`Status:     ${res.isNewUser ? 'Created New Account' : 'Preserved Existing Account'}`);
       console.log(`Role:       ${res.role}`);
-      console.log('-------------------------------\n');
+      console.log('------------------------------\n');
       process.exit(0);
     })
     .catch((err) => {

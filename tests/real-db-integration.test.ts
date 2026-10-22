@@ -37,6 +37,7 @@ test('Migrations table exists and records applied migrations in real Postgres', 
   const { rows } = await env.adminPool.query('SELECT version, applied_at FROM _schema_migrations');
   assert.ok(rows.some((r: { version: string }) => r.version === '001_initial_saas_schema.sql'));
   assert.ok(rows.some((r: { version: string }) => r.version === '002_security_hardening.sql'));
+  assert.ok(rows.some((r: { version: string }) => r.version === '003_auth_security_fixes.sql'));
 });
 
 test('Re-running migrations is idempotent and safe (no re-application or errors)', async () => {
@@ -534,7 +535,60 @@ test('salon_app_role cannot escalate privilege by updating is_super_admin or sub
   assert.notEqual(tenantCheck.rows[0].subscription_tier, 'enterprise');
 });
 
-test('auth_lookup_user_for_login retrieves user safely via SECURITY DEFINER function', async () => {
+test('salon_app_role is strictly prohibited from selecting or updating password_hash or token_version directly', async () => {
+  // 1. محاولة قراءة password_hash مباشرة من جدول users بواسطة salon_app_role
+  await assert.rejects(async () => {
+    await env.pool.query('SELECT password_hash FROM users WHERE id = $1', [user1Id]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes('permission denied') || (err as { code?: string }).code === '42501';
+  });
+
+  // 2. محاولة تعديل token_version مباشرة بواسطة salon_app_role
+  await assert.rejects(async () => {
+    await env.pool.query('UPDATE users SET token_version = 99 WHERE id = $1', [user1Id]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes('permission denied') || (err as { code?: string }).code === '42501';
+  });
+
+  // 3. محاولة تعديل password_hash مباشرة بواسطة salon_app_role
+  await assert.rejects(async () => {
+    await env.pool.query("UPDATE users SET password_hash = 'fake_hash' WHERE id = $1", [user1Id]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes('permission denied') || (err as { code?: string }).code === '42501';
+  });
+});
+
+test('user_isolation_update RLS policy strictly prevents modifying another user even in the same salon', async () => {
+  const client = await env.pool.connect();
+  try {
+    await client.query('BEGIN');
+    // تعيين سياق المستخدم الأول في الصالون الأول
+    await client.query("SELECT set_config('app.current_user_id', $1, true), set_config('app.current_tenant_id', $2, true)", [
+      user1Id,
+      tenant1Id,
+    ]);
+
+    // محاولة المستخدم الأول تعديل اسم المستخدم الثاني (حتى لو كان في النظام)
+    const updateRes = await client.query('UPDATE users SET full_name = $1 WHERE id = $2', [
+      'اسم مخترق',
+      user2Id,
+    ]);
+
+    // بسبب RLS id = app.current_user_id، لن يتأثر أي سطر
+    assert.equal(updateRes.rowCount, 0, 'يجب ألا يتم تعديل أي سطر عند استهداف مستخدم آخر');
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+});
+
+test('auth_lookup_user_for_login retrieves user safely and generates ephemeral ticket', async () => {
   // بحث عن مستخدم موجود بحروف كبيرة ومسافات للتأكد من TRIM و LOWER
   const res = await env.pool.query('SELECT * FROM auth_lookup_user_for_login($1)', ['  OWNER1@NARGES.SA  ']);
   assert.equal(res.rows.length, 1);
@@ -543,47 +597,112 @@ test('auth_lookup_user_for_login retrieves user safely via SECURITY DEFINER func
   assert.equal(res.rows[0].is_active, true);
   assert.equal(res.rows[0].is_super_admin, false);
   assert.ok(res.rows[0].password_hash);
+  assert.ok(res.rows[0].auth_ticket, 'يجب توليد تذكرة مصادقة لحظية');
 
   // بحث عن مستخدم غير موجود
   const notFound = await env.pool.query('SELECT * FROM auth_lookup_user_for_login($1)', ['nonexistent@example.com']);
   assert.equal(notFound.rows.length, 0);
 });
 
-test('auth_record_login_failure increments attempts and locks out account after 5 tries', async () => {
-  // إعادة ضبط المحاولات الفاشلة
-  await env.adminPool.query('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1', [user1Id]);
+test('auth_record_login_failure and auth_record_login_success require valid ephemeral tickets', async () => {
+  // 1. محاولة استدعاء auth_record_login_failure بتذكرة عشوائية مزيفة يجب أن تُرفض بخطأ أمني 42501
+  const fakeTicket = '00000000-0000-0000-0000-000000000000';
+  await assert.rejects(async () => {
+    await env.pool.query('SELECT auth_record_login_failure($1, $2)', [user1Id, fakeTicket]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message;
+    return msg.includes('Invalid or expired authentication ticket') || (err as { code?: string }).code === '42501';
+  });
 
-  // 4 محاولات فاشلة
-  for (let i = 1; i <= 4; i++) {
-    await env.pool.query('SELECT auth_record_login_failure($1)', [user1Id]);
-    const check = await env.adminPool.query('SELECT failed_login_attempts, locked_until FROM users WHERE id = $1', [user1Id]);
-    assert.equal(check.rows[0].failed_login_attempts, i);
-    assert.equal(check.rows[0].locked_until, null);
-  }
+  // 2. محاولة استدعاء auth_record_login_success بتذكرة مزيفة يجب أن تُرفض أيضاً
+  await assert.rejects(async () => {
+    await env.pool.query('SELECT auth_record_login_success($1, $2)', [user1Id, fakeTicket]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message;
+    return msg.includes('Invalid or expired authentication ticket') || (err as { code?: string }).code === '42501';
+  });
 
-  // المحاولة الخامسة تؤدي إلى حظر الحساب (lockout)
-  await env.pool.query('SELECT auth_record_login_failure($1)', [user1Id]);
-  const lockedCheck = await env.adminPool.query('SELECT failed_login_attempts, locked_until FROM users WHERE id = $1', [user1Id]);
-  assert.equal(lockedCheck.rows[0].failed_login_attempts, 5);
-  assert.ok(lockedCheck.rows[0].locked_until !== null);
-  const lockTime = new Date(lockedCheck.rows[0].locked_until).getTime();
-  assert.ok(lockTime > Date.now());
+  // 3. التدفق الشرعي: توليد تذكرة صالحة ثم تسجيل فشل
+  const lookup1 = await env.pool.query('SELECT * FROM auth_lookup_user_for_login($1)', ['owner1@narges.sa']);
+  const ticket1 = lookup1.rows[0].auth_ticket;
+  assert.ok(ticket1);
 
-  // تسجيل دخول ناجح يعيد تصفير العداد والحظر
-  await env.pool.query('SELECT auth_record_login_success($1)', [user1Id]);
-  const resetCheck = await env.adminPool.query('SELECT failed_login_attempts, locked_until, last_login_at FROM users WHERE id = $1', [user1Id]);
-  assert.equal(resetCheck.rows[0].failed_login_attempts, 0);
-  assert.equal(resetCheck.rows[0].locked_until, null);
-  assert.ok(resetCheck.rows[0].last_login_at !== null);
+  await env.pool.query('SELECT auth_record_login_failure($1, $2)', [user1Id, ticket1]);
+  const checkAfterFailure = await env.adminPool.query('SELECT failed_login_attempts FROM users WHERE id = $1', [user1Id]);
+  assert.equal(checkAfterFailure.rows[0].failed_login_attempts, 1);
+
+  // إعادة استخدام نفس التذكرة مرة ثانية يجب أن يفشل لأنها أُبطلت فور الاستخدام
+  await assert.rejects(async () => {
+    await env.pool.query('SELECT auth_record_login_failure($1, $2)', [user1Id, ticket1]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message;
+    return msg.includes('Invalid or expired authentication ticket') || (err as { code?: string }).code === '42501';
+  });
+
+  // 4. التدفق الشرعي: توليد تذكرة جديدة ثم تسجيل نجاح لتصفير العداد
+  const lookup2 = await env.pool.query('SELECT * FROM auth_lookup_user_for_login($1)', ['owner1@narges.sa']);
+  const ticket2 = lookup2.rows[0].auth_ticket;
+  await env.pool.query('SELECT auth_record_login_success($1, $2)', [user1Id, ticket2]);
+  const checkAfterSuccess = await env.adminPool.query('SELECT failed_login_attempts FROM users WHERE id = $1', [user1Id]);
+  assert.equal(checkAfterSuccess.rows[0].failed_login_attempts, 0);
 });
 
-test('auth_get_user_tenants returns active memberships and salon details', async () => {
-  const res = await env.pool.query('SELECT * FROM auth_get_user_tenants($1)', [user1Id]);
-  assert.equal(res.rows.length, 1);
-  assert.equal(res.rows[0].tenant_id, tenant1Id);
-  assert.equal(res.rows[0].tenant_name, 'صالون النرجس');
-  assert.equal(res.rows[0].role, 'salon_owner');
-  assert.equal(res.rows[0].membership_active, true);
+test('auth_get_user_tenants blocks unauthorized membership enumeration without ticket or session', async () => {
+  // 1. محاولة استعراض عضويات مستخدم آخر دون تذكرة ودون جلسة مطابقة
+  await assert.rejects(async () => {
+    await env.pool.query('SELECT * FROM auth_get_user_tenants($1)', [user1Id]);
+  }, (err: unknown) => {
+    const msg = (err as Error).message;
+    return msg.includes('Unauthorized attempt to enumerate user memberships') || (err as { code?: string }).code === '42501';
+  });
+
+  // 2. الاستعلام بتذكرة مصادقة صالحة أثناء تدفق الدخول ينجح
+  const lookup = await env.pool.query('SELECT * FROM auth_lookup_user_for_login($1)', ['owner1@narges.sa']);
+  const ticket = lookup.rows[0].auth_ticket;
+  const withTicket = await env.pool.query('SELECT * FROM auth_get_user_tenants($1, $2)', [user1Id, ticket]);
+  assert.equal(withTicket.rows.length, 1);
+  assert.equal(withTicket.rows[0].tenant_name, 'صالون النرجس');
+
+  // 3. الاستعلام بواسطة المستخدم نفسه داخل جلسة نشطة ينجح
+  const client = await env.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SELECT set_config('app.current_user_id', $1, true)", [user1Id]);
+    const withSession = await client.query('SELECT * FROM auth_get_user_tenants($1)', [user1Id]);
+    assert.equal(withSession.rows.length, 1);
+    assert.equal(withSession.rows[0].role, 'salon_owner');
+    await client.query('COMMIT');
+  } finally {
+    client.release();
+  }
+});
+
+test('auth_revoke_user_sessions allows users to revoke their own sessions but rejects revoking others', async () => {
+  const client = await env.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SELECT set_config('app.current_user_id', $1, true)", [user1Id]);
+
+    // محاولة إبطال جلسات مستخدم آخر user2Id تفشل فوراً
+    await client.query('SAVEPOINT sp_revoke');
+    await assert.rejects(async () => {
+      await client.query('SELECT auth_revoke_user_sessions($1)', [user2Id]);
+    }, (err: unknown) => {
+      const msg = (err as Error).message;
+      return msg.includes('You can only revoke your own active sessions') || (err as { code?: string }).code === '42501';
+    });
+    await client.query('ROLLBACK TO SAVEPOINT sp_revoke');
+
+    // إبطال جلسات المستخدم نفسه ينجح ويرفع token_version
+    const beforeVer = await env.adminPool.query('SELECT token_version FROM users WHERE id = $1', [user1Id]);
+    await client.query('SELECT auth_revoke_user_sessions($1)', [user1Id]);
+    await client.query('COMMIT');
+
+    const afterVer = await env.adminPool.query('SELECT token_version FROM users WHERE id = $1', [user1Id]);
+    assert.equal(afterVer.rows[0].token_version, beforeVer.rows[0].token_version + 1);
+  } finally {
+    client.release();
+  }
 });
 
 test('bcrypt password hashing and verification enforces minimum length and valid matching', async () => {
@@ -601,6 +720,7 @@ test('bcrypt password hashing and verification enforces minimum length and valid
   const invalid = await verifyPassword('WrongPassword123!', hashed);
   assert.equal(invalid, false);
 });
+
 
 
 

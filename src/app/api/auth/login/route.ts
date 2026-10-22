@@ -1,9 +1,12 @@
 // src/app/api/auth/login/route.ts
+// مسار تسجيل الدخول الآمن: التحقق من CSRF، قيود المعدل، مطابقة bcrypt، وتذاكر المصادقة اللحظية
+
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { getDbPool } from '@/lib/db';
 import { PostgresRateLimiter } from '@/lib/auth/rate-limiter';
-import { createSessionToken } from '@/lib/auth/session';
+import { createSessionToken, SESSION_COOKIE_OPTIONS } from '@/lib/auth/session';
+import { validateRequestOrigin } from '@/lib/auth/csrf';
 import type { SalonRole } from '@/lib/auth/roles';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
@@ -11,6 +14,15 @@ export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'for
 export async function POST(req: NextRequest) {
   if (process.env.NEXT_OUTPUT_EXPORT === 'true') {
     return NextResponse.json({ error: 'غير مفعل في نسخة المعاينة الثابتة' }, { status: 400 });
+  }
+
+  // 1. حماية ضد هجمات تزوير الطلبات عبر المواقع (CSRF / Origin Check)
+  const originCheck = validateRequestOrigin(req);
+  if (!originCheck.valid) {
+    return NextResponse.json(
+      { error: 'طلب غير مصرح به: مخالفة حماية المصدر (Origin Check Failed).' },
+      { status: 403 }
+    );
   }
 
   try {
@@ -46,7 +58,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // استعلام المستخدم عبر الدالة الآمنة auth_lookup_user_for_login
+    // 2. استعلام المستخدم وتوليد تذكرة مصادقة لحظية مشفرة عبر auth_lookup_user_for_login
     const userRes = await pool.query('SELECT * FROM auth_lookup_user_for_login($1)', [trimmedEmail]);
 
     if (userRes.rows.length === 0) {
@@ -58,7 +70,7 @@ export async function POST(req: NextRequest) {
 
     const user = userRes.rows[0];
 
-    // التحقق من حالة تفعيل الحساب
+    // 3. التحقق من حالة تفعيل الحساب
     if (!user.is_active) {
       return NextResponse.json(
         { error: 'تم تعطيل هذا الحساب. يرجى التواصل مع إدارة صالون التجميل.' },
@@ -66,7 +78,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // التحقق من قفل الحساب المؤقت
+    // 4. التحقق من قفل الحساب المؤقت
     if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
       const waitMinutes = Math.ceil((new Date(user.locked_until).getTime() - Date.now()) / 60000);
       return NextResponse.json(
@@ -75,23 +87,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // مقارنة كلمة المرور عبر bcrypt
+    // 5. مقارنة كلمة المرور عبر bcrypt
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!passwordMatch) {
-      await pool.query('SELECT auth_record_login_failure($1)', [user.id]);
+      // تسجيل المحاولة الفاشلة عبر التحقق من تذكرة المصادقة اللحظية
+      await pool.query('SELECT auth_record_login_failure($1, $2)', [user.id, user.auth_ticket]);
       return NextResponse.json(
         { error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' },
         { status: 401 }
       );
     }
 
-    // نجاح المصادقة: تسجيل النجاح وتصفير العدادات
-    await pool.query('SELECT auth_record_login_success($1)', [user.id]);
-    await rateLimiter.reset(rateLimitKey);
-
-    // جلب صالونات التجميل المرتبطة بالحساب
-    const tenantsRes = await pool.query('SELECT * FROM auth_get_user_tenants($1)', [user.id]);
+    // 6. جلب صالونات التجميل المرتبطة بالحساب باستخدام تذكرة المصادقة الصالحة
+    const tenantsRes = await pool.query('SELECT * FROM auth_get_user_tenants($1, $2)', [user.id, user.auth_ticket]);
 
     if (tenantsRes.rows.length === 0 && !user.is_super_admin) {
       return NextResponse.json(
@@ -99,6 +108,10 @@ export async function POST(req: NextRequest) {
         { status: 403 }
       );
     }
+
+    // 7. نجاح المصادقة: تسجيل النجاح وتصفير العدادات واستهلاك/إبطال التذكرة
+    await pool.query('SELECT auth_record_login_success($1, $2)', [user.id, user.auth_ticket]);
+    await rateLimiter.reset(rateLimitKey);
 
     const primaryTenant = tenantsRes.rows[0] || {
       tenant_id: '00000000-0000-0000-0000-000000000000',
@@ -108,7 +121,7 @@ export async function POST(req: NextRequest) {
       branch_id: null,
     };
 
-    // إنشاء رمز الجلسة المشفر والموقع
+    // 8. إنشاء رمز الجلسة الموقّع رقمياً بـ HMAC-SHA256
     const sessionToken = createSessionToken({
       userId: user.id,
       tenantId: primaryTenant.tenant_id,
@@ -137,15 +150,15 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // ضبط كوكي الجلسة الآمنة HttpOnly
+    // 9. ضبط كوكي الجلسة الآمنة (HttpOnly, SameSite=Lax, 12 hours)
     response.cookies.set({
-      name: 'salon_session',
+      name: SESSION_COOKIE_OPTIONS.name,
       value: sessionToken,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      httpOnly: SESSION_COOKIE_OPTIONS.httpOnly,
+      secure: SESSION_COOKIE_OPTIONS.secure,
       sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 12, // 12 ساعة
+      path: SESSION_COOKIE_OPTIONS.path,
+      maxAge: SESSION_COOKIE_OPTIONS.maxAge,
     });
 
     return response;

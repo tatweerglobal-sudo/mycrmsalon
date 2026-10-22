@@ -238,10 +238,48 @@ export async function verifyNeonConnection(): Promise<VerificationResult> {
 
           // اختبار دالة تسجيل الدخول الآمنة auth_lookup_user_for_login
           const authLookupRes = await appClient.query('SELECT * FROM auth_lookup_user_for_login($1)', [`user1-${runTag}@salon.test`]);
-          if (authLookupRes.rows.length !== 1 || authLookupRes.rows[0].id !== syntheticUser1) {
-            throw new Error('Authentication function auth_lookup_user_for_login failed to return user.');
+          if (authLookupRes.rows.length !== 1 || authLookupRes.rows[0].id !== syntheticUser1 || !authLookupRes.rows[0].auth_ticket) {
+            throw new Error('Authentication function auth_lookup_user_for_login failed to return user with ephemeral ticket.');
           }
-          console.log('✅ تم التحقق: دالة auth_lookup_user_for_login تعمل بسلاسة وأمان.');
+          console.log('✅ تم التحقق: دالة auth_lookup_user_for_login تولد تذكرة مصادقة لحظية بنجاح.');
+
+          // التحقق من رفض استدعاء auth_record_login_failure بتذكرة مزيفة
+          await appClient.query('SAVEPOINT sp_fake_ticket');
+          let fakeTicketRejected = false;
+          try {
+            await appClient.query('SELECT auth_record_login_failure($1, $2)', [syntheticUser1, '00000000-0000-0000-0000-000000000000']);
+          } catch (tErr: unknown) {
+            if ((tErr as { code?: string }).code === '42501') fakeTicketRejected = true;
+          } finally {
+            await appClient.query('ROLLBACK TO SAVEPOINT sp_fake_ticket');
+          }
+          if (!fakeTicketRejected) {
+            throw new Error('SECURITY VIOLATION: Calling auth_record_login_failure with fake ticket was not rejected!');
+          }
+          console.log('✅ تم التحقق: استدعاء auth_record_login_failure بتذكرة مزيفة مرفوض تماماً (42501).');
+
+          // التحقق من حظر قراءة password_hash مباشرة من جدول users لدور التطبيق
+          await appClient.query('SAVEPOINT sp_hash_block');
+          let hashReadBlocked = false;
+          try {
+            await appClient.query('SELECT password_hash FROM users WHERE id = $1', [syntheticUser1]);
+          } catch (hErr: unknown) {
+            if ((hErr as { code?: string }).code === '42501') hashReadBlocked = true;
+          } finally {
+            await appClient.query('ROLLBACK TO SAVEPOINT sp_hash_block');
+          }
+          if (!hashReadBlocked) {
+            throw new Error('SECURITY VIOLATION: salon_app_role was able to read password_hash directly!');
+          }
+          console.log('✅ تم التحقق: قراءة password_hash مباشرة من جدول users محظورة على دور التطبيق (42501).');
+
+          // التحقق من منع تعديل حساب مستخدم آخر في جدول users
+          // سياق الجلسة الحالي مضبوط على syntheticUser2، فنحاول تعديل بيانات syntheticUser1
+          const crossUserUpdate = await appClient.query('UPDATE users SET full_name = $1 WHERE id = $2', ['اسم مخترق', syntheticUser1]);
+          if (crossUserUpdate.rowCount !== 0) {
+            throw new Error('SECURITY VIOLATION: User was able to update another user row!');
+          }
+          console.log('✅ تم التحقق: سياسة RLS تمنع تماماً تعديل بيانات مستخدم آخر (0 صفوف متأثرة).');
 
           await appClient.query('COMMIT');
         } catch (err) {
