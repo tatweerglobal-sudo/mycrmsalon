@@ -8,6 +8,8 @@
     "build:static": "node scripts/build-static.mjs",
     "package:static": "node scripts/package-static.mjs",
     "migrate": "tsx scripts/migrate.ts",
+    "db:verify-neon": "tsx scripts/verify-neon-connection.ts",
+    "db:setup-role": "tsx scripts/setup-runtime-role.ts",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",

@@ -324,22 +324,42 @@ CREATE TABLE IF NOT EXISTS auth_rate_limits (
 
 -- ============================================================================
 -- 15. إنشاء دور التطبيق المخصص غير المسموح له بتجاوز RLS (Runtime App Role)
--- يتم إنشاء الدور بدون كلمة مرور في الترقية لضمان عدم تضمين أسرار في الكود
--- وتُضبط كلمة المرور الخاصة به في بيئة النشر عبر أدوات الإدارة / Neon
+-- يتم تهيئة الدور بـ LOGIN مع خصائص الحرمان من الامتيازات الإدارية:
+-- NOBYPASSRLS: منع تجاوز سياسات عزل المستأجر تحت أي ظرف
+-- NOSUPERUSER: ليس مدير نظام ولا يملك امتيازات غير محدودة
+-- NOCREATEDB, NOCREATEROLE, NOREPLICATION: منع إدارة قواعد البيانات أو الأدوار
 -- ============================================================================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'salon_app_role') THEN
-    CREATE ROLE salon_app_role WITH NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+    CREATE ROLE salon_app_role WITH LOGIN NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+  ELSE
+    ALTER ROLE salon_app_role WITH LOGIN NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+  END IF;
+
+  -- التأكد من عدم عضوية الدور في neon_superuser في بيئة Neon
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'neon_superuser') THEN
+    BEGIN
+      EXECUTE 'REVOKE neon_superuser FROM salon_app_role';
+    EXCEPTION WHEN OTHERS THEN
+      -- تجاهل في حال لم يكن عضواً
+    END;
   END IF;
 END
 $$;
 
+-- منح الصلاحيات التشغيلية الدنيا فقط (Principle of Least Privilege)
+-- يُمنع صراحة منح TRUNCATE أو الصلاحيات الإدارية أو تعديل المخطط أو إدارة الأدوار
 GRANT USAGE ON SCHEMA public TO salon_app_role;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO salon_app_role;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO salon_app_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO salon_app_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO salon_app_role;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO salon_app_role;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO salon_app_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO salon_app_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO salon_app_role;
+
+-- حظر صريح لعملية TRUNCATE على كافة الجداول لحماية البيانات من المسح الشامل
+REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM salon_app_role;
 
 -- ============================================================================
 -- 16. تفعيل وفرض أمان الصفوف (FORCE ROW LEVEL SECURITY - RLS)

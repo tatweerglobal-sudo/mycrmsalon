@@ -82,13 +82,18 @@ test('Migration 001 establishes tenant-consistent composite foreign keys', () =>
   assert.ok(sql.includes('fk_staff_tenant_branch FOREIGN KEY (tenant_id, branch_id)'));
 });
 
-test('Migration 001 configures dedicated non-bypassable runtime role', () => {
+test('Migration 001 configures dedicated non-bypassable runtime role with least privilege', () => {
   const migrationPath = path.join(process.cwd(), 'migrations', '001_initial_saas_schema.sql');
   const sql = fs.readFileSync(migrationPath, 'utf-8');
 
   assert.ok(sql.includes('salon_app_role'));
+  assert.ok(sql.includes('WITH LOGIN'));
   assert.ok(sql.includes('NOBYPASSRLS'));
   assert.ok(sql.includes('NOSUPERUSER'));
+  assert.ok(sql.includes('NOCREATEROLE'));
+  assert.ok(sql.includes('REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM salon_app_role'));
+  assert.ok(sql.includes('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES'));
+  assert.equal(sql.includes('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO salon_app_role'), false);
 });
 
 test('Migration contains no hardcoded credentials or references to outside databases', () => {

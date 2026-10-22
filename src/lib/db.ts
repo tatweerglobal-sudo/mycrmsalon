@@ -48,12 +48,12 @@ export function getMigrationDbPool(): Pool {
   const isTest = process.env.NODE_ENV === 'test';
   const connectionString = isTest
     ? process.env.SALON_TEST_DATABASE_URL
-    : (process.env.SALON_MIGRATION_DATABASE_URL || process.env.SALON_DATABASE_URL);
+    : process.env.SALON_MIGRATION_DATABASE_URL;
 
   if (!connectionString) {
     throw new Error(isTest
       ? 'SALON_TEST_DATABASE_URL is required for database tests.'
-      : 'SALON_MIGRATION_DATABASE_URL is required for database administration and migrations.');
+      : 'SALON_MIGRATION_DATABASE_URL is required for database administration and migrations. Database migrations must explicitly use SALON_MIGRATION_DATABASE_URL and cannot fall back to application runtime credentials.');
   }
 
   migrationPool = new Pool({

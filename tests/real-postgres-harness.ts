@@ -70,10 +70,11 @@ export async function setupTestPostgres(port = 54338): Promise<RealPostgresEnv> 
       END
       $$;
       GRANT USAGE ON SCHEMA public TO salon_app_role;
-      GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO salon_app_role;
-      GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO salon_app_role;
-      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO salon_app_role;
-      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO salon_app_role;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO salon_app_role;
+      GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO salon_app_role;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO salon_app_role;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO salon_app_role;
+      REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM salon_app_role;
     `);
   } finally {
     adminClient.release();

@@ -479,3 +479,30 @@ test('Distributed PostgresRateLimiter handles concurrent requests atomically wit
   assert.equal(res.rows[0].attempts, 10, 'إجمالي المحاولات المسجلة يجب أن يكون 10 بالضبط');
 });
 
+test('salon_app_role is strictly prohibited from TRUNCATE, schema changes, and role management', async () => {
+  // 1. محاولة TRUNCATE بواسطة دور التطبيق المقيد يجب أن تفشل فوراً بحرمان الصلاحية 42501
+  await assert.rejects(async () => {
+    await env.pool.query('TRUNCATE TABLE customers CASCADE;');
+  }, (err: unknown) => {
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes('permission denied') || (err as { code?: string }).code === '42501';
+  });
+
+  // 2. محاولة DROP TABLE بواسطة دور التطبيق يجب أن تفشل فوراً
+  await assert.rejects(async () => {
+    await env.pool.query('DROP TABLE customers;');
+  }, (err: unknown) => {
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes('must be owner') || msg.includes('permission denied') || (err as { code?: string }).code === '42501';
+  });
+
+  // 3. محاولة إنشاء أدوار (CREATE ROLE) بواسطة دور التطبيق يجب أن تمنع تماماً
+  await assert.rejects(async () => {
+    await env.pool.query('CREATE ROLE malicious_test_role;');
+  }, (err: unknown) => {
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes('permission denied') || (err as { code?: string }).code === '42501';
+  });
+});
+
+
