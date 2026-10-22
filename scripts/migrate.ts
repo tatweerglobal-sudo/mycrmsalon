@@ -4,10 +4,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Pool } from 'pg';
-import { getDbPool } from '../src/lib/db';
+import { getMigrationDbPool } from '../src/lib/db';
 
 export async function runMigrations(customPool?: Pool): Promise<string[]> {
-  const pool = customPool || getDbPool();
+  const pool = customPool || getMigrationDbPool();
   const client = await pool.connect();
   const appliedMigrations: string[] = [];
 

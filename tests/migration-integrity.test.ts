@@ -99,4 +99,7 @@ test('Migration contains no hardcoded credentials or references to outside datab
   assert.equal(sql.includes('crmtatweer'), false);
   assert.equal(sql.includes('recruitment'), false);
   assert.equal(sql.includes('candidate'), false);
+  // تأكيد صارم على خلو ملف الترقية من أي كلمات مرور
+  assert.equal(sql.includes('salon_app_secret_test_pass'), false);
+  assert.equal(/PASSWORD\s+'[^']+'/i.test(sql), false);
 });

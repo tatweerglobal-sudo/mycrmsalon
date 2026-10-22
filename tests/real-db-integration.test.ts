@@ -456,3 +456,26 @@ test('Distributed PostgresRateLimiter enforces rate limiting across shared datab
   assert.equal(r5.allowed, true);
   assert.equal(r5.remainingAttempts, 2);
 });
+
+test('Distributed PostgresRateLimiter handles concurrent requests atomically without race condition', async () => {
+  const limiter = new PostgresRateLimiter(env.pool, 5, 10);
+  const concurrentKey = '192.168.1.99';
+
+  await limiter.reset(concurrentKey);
+
+  // إطلاق 10 طلبات متزامنة في نفس اللحظة بالضبط
+  const concurrentPromises = Array.from({ length: 10 }, () => limiter.check(concurrentKey));
+  const results = await Promise.all(concurrentPromises);
+
+  // التحقق من أن عدد الطلبات المقبولة هو بالضبط 5 والمحظورة هو 5
+  const allowedCount = results.filter(r => r.allowed).length;
+  const blockedCount = results.filter(r => !r.allowed).length;
+
+  assert.equal(allowedCount, 5, 'يجب السماح فقط لـ 5 طلبات متزامنة ذرية');
+  assert.equal(blockedCount, 5, 'يجب حظر 5 طلبات بعد استنفاد الحد');
+
+  // فحص السجل في قاعدة البيانات والتأكد من تسجيل 10 محاولات دون أخطاء فرادة مفتاح
+  const res = await env.adminPool.query(`SELECT attempts FROM auth_rate_limits WHERE key = $1`, [concurrentKey]);
+  assert.equal(res.rows[0].attempts, 10, 'إجمالي المحاولات المسجلة يجب أن يكون 10 بالضبط');
+});
+

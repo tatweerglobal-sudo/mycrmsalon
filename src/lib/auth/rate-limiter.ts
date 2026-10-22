@@ -103,52 +103,42 @@ export class PostgresRateLimiter implements IRateLimiter {
   async check(key: string): Promise<RateLimitResult> {
     const client = await this.pool.connect();
     try {
-      const now = new Date();
-      const res = await client.query(
-        `SELECT attempts, first_attempt_at, last_attempt_at FROM auth_rate_limits WHERE key = $1`,
-        [key]
-      );
+      // تنفيذ ذري بالكامل باستخدام استعلام واحد INSERT ... ON CONFLICT DO UPDATE
+      // يمنع أي سباق تسابق (Race Condition) عند وصول طلبات متزامنة في نفس الوقت
+      const query = `
+        INSERT INTO auth_rate_limits (key, attempts, first_attempt_at, last_attempt_at)
+        VALUES ($1, 1, NOW(), NOW())
+        ON CONFLICT (key) DO UPDATE
+        SET 
+          attempts = CASE 
+            WHEN EXTRACT(EPOCH FROM (NOW() - auth_rate_limits.first_attempt_at)) >= $2 THEN 1
+            ELSE auth_rate_limits.attempts + 1
+          END,
+          first_attempt_at = CASE 
+            WHEN EXTRACT(EPOCH FROM (NOW() - auth_rate_limits.first_attempt_at)) >= $2 THEN NOW()
+            ELSE auth_rate_limits.first_attempt_at
+          END,
+          last_attempt_at = NOW()
+        RETURNING attempts, EXTRACT(EPOCH FROM (NOW() - first_attempt_at))::int AS elapsed_seconds;
+      `;
 
-      if (res.rows.length === 0) {
-        await client.query(
-          `INSERT INTO auth_rate_limits (key, attempts, first_attempt_at, last_attempt_at) VALUES ($1, 1, $2, $2)`,
-          [key, now]
-        );
-        return { allowed: true, remainingAttempts: this.maxAttempts - 1 };
-      }
-
+      const res = await client.query(query, [key, this.windowSeconds]);
       const row = res.rows[0];
-      const elapsedSeconds = Math.floor((now.getTime() - new Date(row.first_attempt_at).getTime()) / 1000);
+      const attempts = Number(row.attempts);
+      const elapsedSeconds = Number(row.elapsed_seconds || 0);
 
-      // إذا انتهت النافذة الزمنية، يتم التصفير
-      if (elapsedSeconds >= this.windowSeconds) {
-        await client.query(
-          `UPDATE auth_rate_limits SET attempts = 1, first_attempt_at = $2, last_attempt_at = $2 WHERE key = $1`,
-          [key, now]
-        );
-        return { allowed: true, remainingAttempts: this.maxAttempts - 1 };
-      }
-
-      // إذا كان ضمن النافذة وتجاوز الحد
-      if (row.attempts >= this.maxAttempts) {
-        const retryAfterSeconds = this.windowSeconds - elapsedSeconds;
+      if (attempts > this.maxAttempts) {
+        const retryAfterSeconds = Math.max(1, this.windowSeconds - elapsedSeconds);
         return {
           allowed: false,
           remainingAttempts: 0,
-          retryAfterSeconds: Math.max(1, retryAfterSeconds),
+          retryAfterSeconds,
         };
       }
 
-      // زيادة عدد المحاولات
-      const newAttempts = row.attempts + 1;
-      await client.query(
-        `UPDATE auth_rate_limits SET attempts = $2, last_attempt_at = $3 WHERE key = $1`,
-        [key, newAttempts, now]
-      );
-
       return {
         allowed: true,
-        remainingAttempts: this.maxAttempts - newAttempts,
+        remainingAttempts: Math.max(0, this.maxAttempts - attempts),
       };
     } finally {
       client.release();

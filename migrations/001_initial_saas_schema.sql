@@ -324,11 +324,13 @@ CREATE TABLE IF NOT EXISTS auth_rate_limits (
 
 -- ============================================================================
 -- 15. إنشاء دور التطبيق المخصص غير المسموح له بتجاوز RLS (Runtime App Role)
+-- يتم إنشاء الدور بدون كلمة مرور في الترقية لضمان عدم تضمين أسرار في الكود
+-- وتُضبط كلمة المرور الخاصة به في بيئة النشر عبر أدوات الإدارة / Neon
 -- ============================================================================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'salon_app_role') THEN
-    CREATE ROLE salon_app_role WITH LOGIN PASSWORD 'salon_app_secret_test_pass' NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+    CREATE ROLE salon_app_role WITH NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
   END IF;
 END
 $$;
