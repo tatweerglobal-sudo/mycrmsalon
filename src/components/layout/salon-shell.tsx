@@ -143,6 +143,15 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
           <p className="mt-1 text-xs text-slate-500">نظام إدارة صالونات ومراكز التجميل</p>
         </div>
         <nav className="p-3 space-y-1" aria-label="القائمة الرئيسية">
+          {profile?.user?.isSuperAdmin && (
+            <div className="mb-3 rounded-xl border border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 p-2 shadow-sm">
+              <div className="flex items-center justify-between px-2 pb-1 text-[11px] font-black text-amber-900">
+                <span className="flex items-center gap-1">👑 لوحة مالك المنصة</span>
+                <span className="rounded bg-amber-200/90 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">Super Admin</span>
+              </div>
+              <NavLink href="/admin" label="إدارة المراكز والاشتراكات" icon={<span>🏢</span>} />
+            </div>
+          )}
           <NavLink href="/" label="لوحة التحكم" icon={<span>🏠</span>} />
           {salonSections.map(item => (
             <NavLink key={item.slug} href={'/' + item.slug} label={item.label} icon={<span>{item.icon}</span>} />
@@ -180,6 +189,23 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
           </div>
 
           <div className="flex items-center gap-3">
+            {profile?.user?.isSuperAdmin && (
+              <Link
+                href={(() => {
+                  let h = '/admin';
+                  if (typeof window !== 'undefined') {
+                    const token = localStorage.getItem('salon_token') || sessionStorage.getItem('salon_token');
+                    if (token) h += `?st=${encodeURIComponent(token)}`;
+                  }
+                  return h;
+                })()}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-100/80 px-3 py-1.5 text-xs font-black text-amber-950 shadow-sm transition hover:bg-amber-200"
+              >
+                <span>👑</span>
+                <span className="hidden sm:inline">لوحة المنصة (Super Admin)</span>
+                <span className="sm:hidden">المنصة</span>
+              </Link>
+            )}
             {!authLoading && profile ? (
               <div className="flex items-center gap-2 sm:gap-4">
                 <div className="hidden text-left text-xs leading-tight sm:block">
