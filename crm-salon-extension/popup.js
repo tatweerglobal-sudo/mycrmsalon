@@ -1,4 +1,4 @@
-// popup.js - Controller for My CRM Salon Synchronized Extension v1.0
+// popup.js - Controller for My CRM Salon Synchronized Extension v1.0.1
 // My CRM Salon is the Single Source of Truth for Services, Statuses, Staff, and Tags
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (state.token) {
     await fetchCrmMetadata(false);
   } else {
-    updateSyncStatus('يرجى إدخال التوكن في الإعدادات', '🟡');
+    updateSyncStatus('يرجى حفظ التوكن أولاً', '🟡');
     renderAllDropdowns();
   }
 
@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.token = apiTokenInput.value.trim();
 
     saveSettingsToStorage(async () => {
-      showAlert('تم حفظ إعدادات الاتصال. جاري مزامنة خدمات وقوائم الصالون...', 'success');
+      showAlert('تم حفظ إعدادات الاتصال. جاري مزامنة القوائم من النظام...', 'success');
       await fetchCrmMetadata(true);
       settingsBox.style.display = 'none';
     });
@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnSyncNow.innerHTML = '<span>تحديث القوائم</span> <span>🔄</span>';
   });
 
-  // 6. Custom Job (Service) Revealing
+  // 6. Custom Job Revealing
   jobSelect.addEventListener('change', () => {
     if (jobSelect.value === '__custom__') {
       customJobInput.style.display = 'block';
@@ -139,7 +139,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const metaUrl = getMetaEndpointUrl(state.apiUrl);
-    updateSyncStatus('جاري الاتصال بنظام الصالون...', '⏳');
+    updateSyncStatus('جاري الاتصال بالنظام...', '⏳');
 
     try {
       const headers = {
@@ -156,10 +156,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       if (res.status === 304) {
-        // Cache is fresh and verified by server
         state.isOfflineCache = false;
-        state.lastSyncTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
-        updateSyncStatus(`متطابقة مع الصالون (${state.lastSyncTime})`, '🟢');
+        state.lastSyncTime = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+        updateSyncStatus(`متطابقة مع النظام (${state.lastSyncTime})`, '🟢');
         cacheBanner.style.display = 'none';
         renderAllDropdowns();
         saveMetadataCache();
@@ -189,16 +188,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.tags = json.data.tags || [];
         state.currentEmployee = json.data.currentEmployee || null;
         state.version = json.data.version || '';
-        state.lastSyncTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+        state.lastSyncTime = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
         state.isOfflineCache = false;
 
         cacheBanner.style.display = 'none';
-        updateSyncStatus(`متزامنة مع الصالون (${state.lastSyncTime})`, '🟢');
+        updateSyncStatus(`متزامنة مع النظام (${state.lastSyncTime})`, '🟢');
         renderAllDropdowns();
         saveMetadataCache();
 
         if (isManual) {
-          showAlert(`✅ تم تحديث القوائم بنجاح من نظام الصالون (${state.jobs.length} خدمة و ${state.tags.length} وسم معتمد).`, 'success');
+          showAlert(`✅ تم تحديث القوائم بنجاح من النظام (${state.jobs.length} خدمة و ${state.tags.length} وسم معتمد).`, 'success');
         }
       }
     } catch (err) {
@@ -212,8 +211,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         cacheTimeText.textContent = state.lastSyncTime || 'سابقاً';
         renderAllDropdowns();
       } else {
-        updateSyncStatus('تعذر الاتصال بالصالون', '🔴');
-        showAlert(`⚠️ تعذر جلب الخدمات: ${err.message}. يرجى التحقق من اتصال الإنترنت ورابط الخادم.`, 'warning');
+        updateSyncStatus('تعذر الاتصال بالنظام', '🔴');
+        showAlert(`⚠️ تعذر جلب القوائم: ${err.message}. يرجى التحقق من اتصال الإنترنت ورابط الخادم.`, 'warning');
       }
     }
   }
@@ -250,7 +249,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function renderJobs() {
     const currentVal = jobSelect.value;
-    jobSelect.innerHTML = '<option value="">-- اختر الخدمة المعتمدة --</option>';
+    jobSelect.innerHTML = '<option value="">-- اختر الخدمة المطلوبة --</option>';
 
     state.jobs.forEach((j) => {
       const opt = document.createElement('option');
@@ -275,14 +274,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusSelect.innerHTML = '';
 
     const list = state.statuses.length > 0 ? state.statuses : [
-      { code: 'جديد', label_ar: 'جديدة (طلب أول مرة)', is_default: true },
-      { code: 'تم التواصل', label_ar: 'تم التواصل واتساب' },
-      { code: 'حجزت موعد', label_ar: 'تم تأكيد حجز الموعد' },
-      { code: 'استفسار عن باقة/سعر', label_ar: 'استفسار عن باقة أو عرض' },
-      { code: 'عميلة سابقة', label_ar: 'عميلة سابقة / معاودة اتصال' },
-      { code: 'عميلة VIP', label_ar: 'عميلة VIP مميزة' },
-      { code: 'مؤجل', label_ar: 'مؤجل لاحقاً' },
-      { code: 'لم ترد', label_ar: 'لم ترد على المحادثة' },
+      { code: 'جديد', label_ar: 'جديدة', is_default: true },
+      { code: 'تم التواصل', label_ar: 'تم التواصل' },
+      { code: 'حجزت موعد', label_ar: 'حجزت موعد' },
+      { code: 'استفسار عن باقة/سعر', label_ar: 'استفسار عن باقة/سعر' },
+      { code: 'عميلة سابقة', label_ar: 'عميلة سابقة' },
+      { code: 'عميلة VIP', label_ar: 'عميلة VIP' },
+      { code: 'مؤجل', label_ar: 'مؤجل' },
+      { code: 'لم ترد', label_ar: 'لم ترد' },
       { code: 'اعتذرت عن الحجز', label_ar: 'اعتذرت عن الحجز' },
     ];
 
@@ -298,8 +297,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function renderEmployees() {
     const currentVal = employeeSelect.value;
     const defaultLabel = state.currentEmployee
-      ? `(المسؤولة التلقائية: ${state.currentEmployee.displayName})`
-      : '(المسؤولة التلقائية: موظفة الاستقبال)';
+      ? `(المسؤولة: ${state.currentEmployee.displayName})`
+      : '(المسؤولة: أخصائية المركز)';
 
     employeeSelect.innerHTML = `<option value="">${escapeHtml(defaultLabel)}</option>`;
 
@@ -325,7 +324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     if (allDisplayTags.length === 0) {
-      tagsContainer.innerHTML = '<span style="font-size: 11px; color: #94a3b8;">لا توجد وسوم متاحة من الصالون</span>';
+      tagsContainer.innerHTML = '<span style="font-size: 11px; color: #94a3b8;">لا توجد وسوم متاحة من النظام</span>';
       if (tagsCountBadge) tagsCountBadge.textContent = '0 وسم';
       return;
     }
@@ -441,93 +440,99 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      // Try sending message to content script
       chrome.tabs.sendMessage(targetTab.id, { action: 'CAPTURE_ACTIVE_CONTACT' }, async (response) => {
-        const lastErr = chrome.runtime.lastError;
-
-        if (lastErr || !response) {
-          try {
-            const injectionResults = await chrome.scripting.executeScript({
-              target: { tabId: targetTab.id },
-              func: extractActiveContactInfoFromDOM,
-            });
-
-            if (injectionResults && injectionResults[0] && injectionResults[0].result) {
-              handleCaptureResult(injectionResults[0].result);
-            } else {
-              showAlert('تعذر قراءة بيانات المحادثة. يرجى إعادة تحميل صفحة WhatsApp Web والتأكد من فتح محادثة العميل/ة.', 'error');
-            }
-          } catch (injectErr) {
-            showAlert(`تعذر الحقن المباشر في واتساب: ${injectErr.message}`, 'error');
-          }
-        } else {
-          handleCaptureResult(response);
+        if (!chrome.runtime.lastError && response?.ok && response.data?.phone) {
+          handleCaptureResponse(response);
+          btnCapture.disabled = false;
+          btnCapture.innerText = '📥 سحب الاسم والرقم من محادثة واتساب النشطة';
+          return;
         }
 
-        btnCapture.disabled = false;
-        btnCapture.innerText = '📥 سحب الاسم والرقم من محادثة واتساب النشطة';
+        try {
+          if (chrome.scripting?.executeScript) {
+            let execResults = null;
+            try {
+              execResults = await chrome.scripting.executeScript({
+                target: { tabId: targetTab.id },
+                world: 'MAIN',
+                func: extractActiveContactInfoFromDOM,
+              });
+            } catch (_worldErr) {
+              execResults = await chrome.scripting.executeScript({
+                target: { tabId: targetTab.id },
+                func: extractActiveContactInfoFromDOM,
+              });
+            }
+
+            if (execResults && execResults[0]?.result?.ok) {
+              handleCaptureResponse(execResults[0].result);
+            } else {
+              const err = execResults?.[0]?.result?.error || 'لم يتم العثور على محادثة مفتوحة في واتساب ويب.';
+              showAlert(`⚠️ ${err}`, 'warning');
+            }
+          } else {
+            showAlert('يرجى فتح نافذة المحادثة في واتساب ويب وإعادة المحاولة.', 'warning');
+          }
+        } catch (injectionErr) {
+          showAlert(`خطأ في فحص محادثة واتساب: ${injectionErr.message}`, 'error');
+        } finally {
+          btnCapture.disabled = false;
+          btnCapture.innerText = '📥 سحب الاسم والرقم من محادثة واتساب النشطة';
+        }
       });
-    } catch (e) {
-      showAlert(`حدث خطأ أثناء الاتصال بالتبويب: ${e.message}`, 'error');
+    } catch (err) {
+      showAlert(`حدث خطأ أثناء المحاولة: ${err.message}`, 'error');
       btnCapture.disabled = false;
       btnCapture.innerText = '📥 سحب الاسم والرقم من محادثة واتساب النشطة';
     }
   });
 
-  function handleCaptureResult(result) {
-    if (!result || !result.ok) {
-      showAlert(result?.error || 'تعذر استخراج بيانات المحادثة النشطة.', 'warning');
-      return;
-    }
-
-    const clientName = (result.name || result.data?.name || '').trim();
-    const clientPhone = (result.phone || result.data?.phone || '').trim();
-
-    if (clientPhone) {
-      phoneInput.value = cleanAndFormatPhoneNumber(clientPhone);
-    }
-    if (clientName) {
-      nameInput.value = clientName;
-    }
-
-    if (clientPhone || clientName) {
-      showAlert(`✨ تم سحب بيانات العميل/ة بنجاح (${clientName || 'بدون اسم'} - ${phoneInput.value || clientPhone || ''})`, 'success');
-      if (result.warning) {
-        setTimeout(() => {
-          showAlert(`✨ تم سحب الاسم: "${clientName}".<br><span style="font-size:10px; color:#b45309;">💡 لم يتم العثور على رقم في الترويسة لخصوصية جهة الاتصال؛ يرجى كتابته في خانة الهاتف.</span>`, 'warning', true);
-        }, 1200);
+  function handleCaptureResponse(res) {
+    if (res.data) {
+      if (res.data.phone) {
+        phoneInput.value = cleanAndFormatPhoneNumber(res.data.phone);
+        phoneInput.setAttribute('dir', 'ltr');
+        phoneInput.classList.add('phone-input');
       }
+      if (res.data.name && (!nameInput.value || nameInput.value.trim() === '')) {
+        nameInput.value = res.data.name;
+      }
+    }
+
+    if (res.data?.phone) {
+      const formattedPhone = cleanAndFormatPhoneNumber(res.data.phone);
+      showAlert(`✅ تم سحب بيانات جهة الاتصال بنجاح! (<span dir="ltr">${escapeHtml(formattedPhone)}</span>)`, 'success', true);
+    } else if (res.warning) {
+      showAlert(res.warning, 'warning');
+      phoneInput.focus();
     } else {
-      showAlert('تم فتح المحادثة ولكن لم يتم التعرف على الاسم أو رقم الهاتف تلقائياً. يرجى إدخال البيانات يدوياً.', 'warning');
+      showAlert('تم التقاط بيانات جهة الاتصال بنجاح.', 'success');
     }
   }
 
   // --------------------------------------------------------------------------
-  // Form Submission
+  // Form Submission to CRM
   // --------------------------------------------------------------------------
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideAlert();
 
-    const apiUrl = state.apiUrl || apiUrlInput.value.trim();
-    const token = state.token || apiTokenInput.value.trim();
-
-    if (!token) {
-      showAlert('يرجى إدخال رمز الدخول (Bearer Token) أولاً في إعدادات الإضافة بالأسفل.', 'warning');
-      settingsBox.style.display = 'block';
-      apiTokenInput.focus();
-      return;
-    }
-
-    const rawPhone = phoneInput.value.trim();
-    if (!rawPhone) {
-      showAlert('يرجى إدخال رقم الهاتف.', 'warning');
+    const phone = phoneInput.value.trim();
+    if (!phone) {
+      showAlert('رقم الهاتف حقل إلزامي.', 'error');
       phoneInput.focus();
       return;
     }
 
-    const phone = cleanAndFormatPhoneNumber(rawPhone);
+    const apiUrl = apiUrlInput.value.trim() || state.apiUrl;
+    const token = apiTokenInput.value.trim() || state.token;
+    if (!token) {
+      showAlert('يرجى إدخال رمز التحقق (Bearer Token) في الإعدادات قبل الإرسال.', 'warning');
+      settingsBox.style.display = 'block';
+      return;
+    }
 
+    // استخراج قيمة الخدمة
     let jobVal = jobSelect.value;
     let isCustomJob = false;
     if (jobVal === '__custom__') {
@@ -542,18 +547,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       requestId: crypto.randomUUID(),
       phone,
       name: nameInput.value.trim() || undefined,
-      job: jobVal || undefined, // الخدمة المطلوبة
+      job: jobVal || undefined,
       status: statusSelect.value || 'جديد',
       employee: employeeSelect.value || undefined,
       tags: submittedTags.length > 0 ? submittedTags : undefined,
-      interviewed: interviewedCheck.checked, // حجز مسبق / تم تقديم خدمة
+      interviewed: interviewedCheck.checked,
       followUpDate: followUpDateInput.value || undefined,
-      interviewDate: interviewDateInput.value ? new Date(interviewDateInput.value).toISOString() : undefined, // موعد الحجز/الزيارة
+      interviewDate: interviewDateInput.value ? new Date(interviewDateInput.value).toISOString() : undefined,
       notes: notesInput.value.trim() || undefined,
     };
 
     btnSubmit.disabled = true;
-    btnSubmit.innerText = '⏳ جاري إرسال العميل/ة إلى نظام الصالون...';
+    btnSubmit.innerText = '⏳ جاري إرسال البيانات إلى النظام...';
 
     chrome.runtime.sendMessage(
       {
@@ -563,20 +568,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
       (res) => {
         btnSubmit.disabled = false;
-        btnSubmit.innerText = '🚀 إرسال العميل/ة إلى نظام الصالون';
+        btnSubmit.innerText = '🚀 تسجيل العميل/ة وتأكيد الموعد';
 
         if (!res) {
           showAlert('لم يتم تلقي استجابة من الخدمة الخلفية.', 'error');
           return;
         }
 
-        if (res.status === 201) {
-          let successText = `✅ تم تسجيل العميل/ة بنجاح في نظام الصالون! المعرف: ${res.data?.data?.customerId || res.data?.candidateId || ''}`;
+        if (res.status === 201 || res.status === 200) {
+          let successText = `✅ تم تسجيل العميل/ة والموعد بنجاح! المعرف: ${res.data?.candidateId || res.data?.customerId || ''}`;
           if (isCustomJob) {
-            successText += `<br><span style="font-size:10px; color:#b45309;">💡 تم تسجيل الخدمة ("${escapeHtml(jobVal)}") كمقترح غير معتمد لمراجعة إدارة الصالون.</span>`;
+            successText += `<br><span style="font-size:10px; color:#b45309;">💡 تم تسجيل الخدمة ("${escapeHtml(jobVal)}") كمقترح للمراجعة في النظام.</span>`;
           }
           if (hasCustomTags) {
-            successText += `<br><span style="font-size:10px; color:#b45309;">🏷️ تم تسجيل الوسوم غير المعتمدة كمقترحات للمراجعة في لوحة الصالون.</span>`;
+            successText += `<br><span style="font-size:10px; color:#b45309;">🏷️ تم تسجيل الوسوم غير المعتمدة كمقترحات للمراجعة في النظام.</span>`;
           }
           showAlert(successText, 'success', true);
           form.reset();
@@ -587,7 +592,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           state.customTags = [];
           renderTags();
         } else if (res.status === 409) {
-          showAlert(`⚠️ تنبيه تعارض: ${res.data?.error || 'العميل/ة مسجل مسبقاً بنفس رقم الهاتف.'}`, 'warning');
+          showAlert(`⚠️ تنبيه تعارض: ${res.data?.error || 'العميل/ة مسجل/ة مسبقاً بنفس رقم الهاتف.'}`, 'warning');
         } else if (res.status === 401) {
           showAlert('❌ فشل التحقق: رمز الدخول غير صحيح أو ملغي أو منتهي الصلاحية.', 'error');
         } else if (res.status === 422) {
@@ -615,48 +620,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     alertBox.style.display = 'none';
   }
 
-  function convertArabicIndicDigits(input) {
-    const arabicIndic = '٠١٢٣٤٥٦٧٨٩';
-    const easternPersian = '۰۱۲۳۴۵۶۷۸۹';
-    return (input || '')
-      .replace(/[٠-٩]/g, (d) => String(arabicIndic.indexOf(d)))
-      .replace(/[۰-۹]/g, (d) => String(easternPersian.indexOf(d)));
-  }
-
   function cleanAndFormatPhoneNumber(rawPhone) {
     if (!rawPhone || typeof rawPhone !== 'string') return '';
-    let str = convertArabicIndicDigits(rawPhone)
-      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-      .trim();
-
+    let str = rawPhone.replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').trim();
     const hasPlus = str.startsWith('+') || str.startsWith('00');
     const digits = str.replace(/\D/g, '');
 
-    if (hasPlus) {
-      if (str.startsWith('00')) return '+' + digits.slice(2);
-      return '+' + digits;
-    }
-
-    // أرقام الجوال السعودية: 05XXXXXXXX أو 5XXXXXXXX
-    if (/^05\d{8}$/.test(digits)) return '+966' + digits.slice(1);
-    if (/^5\d{8}$/.test(digits)) return '+966' + digits;
-    if (/^9665\d{8}$/.test(digits)) return '+' + digits;
-
-    // أرقام الجوال المصرية: 01XXXXXXXXX
-    if (/^01[0125]\d{8}$/.test(digits)) return '+20' + digits.slice(1);
-    if (/^201[0125]\d{8}$/.test(digits)) return '+' + digits;
-
-    // أرقام الإمارات وباقي الخليج
-    if (/^9715\d{8}$/.test(digits)) return '+' + digits;
-    if (/^965\d{8}$/.test(digits)) return '+' + digits;
-
-    if (digits.length >= 8 && digits.length <= 15) {
-      if (/^(966|20|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|1)/.test(digits)) {
-        return '+' + digits;
-      }
-    }
-
-    return '+' + digits;
+    if (hasPlus) return '+' + digits;
+    if (digits.startsWith('20') && digits.length >= 11) return '+' + digits;
+    return digits;
   }
 
   function escapeHtml(str) {
@@ -668,191 +640,61 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// وظيفة الاستخراج المستقلة للحقن المباشر في واتساب ويب (النسخة المطورة متعددة الاستراتيجيات)
+// وظيفة الاستخراج المستقلة للحقن المباشر في واتساب ويب
 async function extractActiveContactInfoFromDOM() {
-  function convertArabicIndicDigits(input) {
-    const arabicIndic = '٠١٢٣٤٥٦٧٨٩';
-    const easternPersian = '۰۱۲۳۴۵۶۷۸۹';
-    return (input || '')
-      .replace(/[٠-٩]/g, (d) => String(arabicIndic.indexOf(d)))
-      .replace(/[۰-۹]/g, (d) => String(easternPersian.indexOf(d)));
-  }
-
   function isValidRealPhoneNumber(str) {
     if (!str || typeof str !== 'string') return false;
     if (str.includes('@lid') || str.includes('lid')) return false;
 
-    const cleaned = convertArabicIndicDigits(str);
-    const digits = cleaned.replace(/\D/g, '');
-
+    const digits = str.replace(/\D/g, '');
+    // استبعاد معرفات LID الداخلية لواتساب (14 إلى 16 رقماً تبدأ بـ 13 أو 14 أو 15)
     if (digits.length >= 14 && /^1[345]/.test(digits)) return false;
-    if (digits.length < 8 || digits.length > 15) return false;
+    if (digits.length < 8 || digits.length > 14) return false;
 
-    if (/^0?5\d{8}$/.test(digits)) return true;
+    // الأرقام المصرية المحلية (010, 011, 012, 015)
     if (/^01[0125]\d{8}$/.test(digits)) return true;
-    if (/^(966|20|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|1)\d{7,12}$/.test(digits)) return true;
 
-    return digits.length >= 8 && digits.length <= 14;
+    // مفاتيح الدول العربية والدولية المعتمدة
+    if (/^(20|966|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|1)\d{7,12}$/.test(digits)) return true;
+
+    return digits.length >= 8 && digits.length <= 13;
   }
 
   function cleanAndFormatPhoneNumber(rawPhone) {
     if (!rawPhone || typeof rawPhone !== 'string') return '';
-    let str = convertArabicIndicDigits(rawPhone)
-      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-      .trim();
-
+    let str = rawPhone.replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').trim();
     const hasPlus = str.startsWith('+') || str.startsWith('00');
     const digits = str.replace(/\D/g, '');
 
     if (hasPlus) {
-      if (str.startsWith('00')) return '+' + digits.slice(2);
       return '+' + digits;
     }
-
-    if (/^05\d{8}$/.test(digits)) return '+966' + digits.slice(1);
-    if (/^5\d{8}$/.test(digits)) return '+966' + digits;
-    if (/^9665\d{8}$/.test(digits)) return '+' + digits;
-    if (/^01[0125]\d{8}$/.test(digits)) return '+20' + digits.slice(1);
-    if (/^201[0125]\d{8}$/.test(digits)) return '+' + digits;
-    if (/^9715\d{8}$/.test(digits)) return '+' + digits;
-    if (/^965\d{8}$/.test(digits)) return '+' + digits;
-
-    if (digits.length >= 8 && digits.length <= 15) {
-      if (/^(966|20|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|1)/.test(digits)) {
-        return '+' + digits;
-      }
+    if (digits.startsWith('20') && digits.length >= 11) {
+      return '+' + digits;
     }
-
-    return '+' + digits;
-  }
-
-  function findPhoneInElement(rootEl) {
-    if (!rootEl) return null;
-
-    const intlRegex = /(?:\+|00)\s*(?:966|20|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|\d{1,3})[\d\s\-()]{7,15}\d/;
-    const saudiRegex = /\b0?5\d[\d\s\-]{7,9}\d\b/;
-    const egyptRegex = /\b01[0125][\d\s\-]{8}\b/;
-
-    const nodes = rootEl.querySelectorAll('span, div, a, p');
-    for (const node of nodes) {
-      const title = (node.getAttribute('title') || '').trim();
-      if (title) {
-        const m = title.match(intlRegex) || title.match(saudiRegex) || title.match(egyptRegex);
-        if (m && isValidRealPhoneNumber(m[0])) {
-          return m[0].trim();
-        }
-      }
-
-      if (node.children.length <= 1) {
-        const txt = (node.textContent || '').trim();
-        if (txt && txt.length >= 8 && txt.length <= 30) {
-          const m = txt.match(intlRegex) || txt.match(saudiRegex) || txt.match(egyptRegex);
-          if (m && isValidRealPhoneNumber(m[0])) {
-            return m[0].trim();
-          }
-        }
-      }
-    }
-
-    const telLink = rootEl.querySelector('a[href^="tel:"]');
-    if (telLink) {
-      const href = telLink.getAttribute('href') || '';
-      const phoneFromHref = href.replace('tel:', '').trim();
-      if (isValidRealPhoneNumber(phoneFromHref)) {
-        return phoneFromHref;
-      }
-    }
-
-    return null;
-  }
-
-  async function readPhoneByOpeningContactDrawer(mainHeader) {
-    try {
-      let drawer =
-        document.querySelector('[data-testid="contact-info-drawer"]') ||
-        document.querySelector('div[data-testid="drawer-middle"]') ||
-        document.querySelector('div[aria-label*="معلومات"]') ||
-        document.querySelector('div[aria-label*="Contact"]') ||
-        document.querySelector('div[role="region"]') ||
-        document.querySelector('section');
-
-      let alreadyOpen = false;
-      if (drawer) {
-        const p = findPhoneInElement(drawer);
-        if (p) return p;
-        alreadyOpen = true;
-      }
-
-      const titleContainer =
-        mainHeader.querySelector('[data-testid="conversation-info-header-chat-title"]')?.closest('div[role="button"]') ||
-        mainHeader.querySelector('span[title]')?.closest('div[role="button"]') ||
-        mainHeader.querySelector('div[role="button"]') ||
-        mainHeader;
-
-      if (!alreadyOpen && titleContainer) {
-        titleContainer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-        titleContainer.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-        titleContainer.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        titleContainer.click();
-      }
-
-      let foundPhone = null;
-      for (let attempt = 0; attempt < 14; attempt++) {
-        await new Promise((r) => setTimeout(r, 100));
-
-        drawer =
-          document.querySelector('[data-testid="contact-info-drawer"]') ||
-          document.querySelector('div[data-testid="drawer-middle"]') ||
-          document.querySelector('div[aria-label*="معلومات"]') ||
-          document.querySelector('div[aria-label*="Contact"]') ||
-          document.querySelector('div[role="region"]') ||
-          document.querySelector('section');
-
-        if (drawer) {
-          foundPhone = findPhoneInElement(drawer);
-          if (foundPhone) break;
-        }
-      }
-
-      if (!alreadyOpen && drawer) {
-        const closeBtn =
-          drawer.querySelector('button[aria-label*="Close"], button[aria-label*="إغلاق"], span[data-testid="x"]')?.closest('button') ||
-          drawer.querySelector('button');
-        if (closeBtn) {
-          closeBtn.click();
-        } else {
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-        }
-      }
-
-      return foundPhone;
-    } catch (_e) {
-      return null;
-    }
+    return digits;
   }
 
   try {
-    const mainContainer =
-      document.querySelector('#main') ||
+    const mainContainer = document.querySelector('#main') ||
       document.querySelector('div[data-testid="conversation-panel-body"]') ||
       document.querySelector('div[role="region"]');
 
     if (!mainContainer) {
       return {
         ok: false,
-        error: 'لم يتم العثور على محادثة مفتوحة حالياً. يرجى النقر على محادثة العميل/ة في واتساب ويب لفتحها أولاً.',
+        error: 'لم يتم العثور على محادثة مفتوحة حالياً. يرجى النقر على محادثة العميل/ة في واتساب ويب لفتحها أولاً.'
       };
     }
 
-    const mainHeader =
-      mainContainer.querySelector('header') ||
+    const mainHeader = mainContainer.querySelector('header') ||
       document.querySelector('[data-testid="conversation-info-header"]') ||
       document.querySelector('#main header');
 
     if (!mainHeader) {
       return {
         ok: false,
-        error: 'تعذر تحديد ترويسة المحادثة في واتساب ويب. تأكد من اكتمال تحميل الصفحة.',
+        error: 'تعذر تحديد ترويسة المحادثة في واتساب ويب.'
       };
     }
 
@@ -861,7 +703,7 @@ async function extractActiveContactInfoFromDOM() {
       mainHeader.querySelector('div[role="button"] span[title]'),
       mainHeader.querySelector('span[title]'),
       mainHeader.querySelector('div[role="button"] span[dir="auto"]'),
-      mainHeader.querySelector('span[dir="auto"]'),
+      mainHeader.querySelector('span[dir="auto"]')
     ];
 
     let headerTitle = '';
@@ -875,56 +717,155 @@ async function extractActiveContactInfoFromDOM() {
       }
     }
 
-    let pushName = '';
-    let headerSubtitle = '';
-    const headerSpans = mainHeader.querySelectorAll('span[dir="auto"], span[title], div[dir="auto"]');
-    for (const el of headerSpans) {
-      const txt = (el.getAttribute('title') || el.textContent || '').trim();
-      if (!txt || txt === headerTitle) continue;
-      if (['online', 'typing...', 'متصل الآن', 'يكتب...', 'جاري الكتابة...'].includes(txt.toLowerCase())) continue;
-
-      if (txt.startsWith('~')) {
-        pushName = txt.replace(/^~/, '').trim();
-      } else if (!headerSubtitle && txt.length > 1 && txt.length < 50) {
-        headerSubtitle = txt;
-      }
-    }
-
     let name = '';
     let phone = '';
 
     if (isValidRealPhoneNumber(headerTitle)) {
       phone = headerTitle.trim();
-      name = pushName || (headerSubtitle && !isValidRealPhoneNumber(headerSubtitle) ? headerSubtitle : '');
+      name = '';
     } else {
       name = headerTitle.trim();
 
-      if (headerSubtitle && isValidRealPhoneNumber(headerSubtitle)) {
-        phone = headerSubtitle.trim();
-      }
+      // 1. فحص بنية React Fiber لشجرة المكونات واستخراج pnId أو phoneNumber وتجنب LID
+      try {
+        const inspectObj = (o, depth = 0, visited = new Set()) => {
+          if (!o || depth > 5 || typeof o !== 'object' || visited.has(o)) return null;
+          visited.add(o);
 
-      // الاستراتيجية 1: البحث في data-id للرسائل
-      if (!phone) {
-        const msgEls = mainContainer.querySelectorAll('div[data-id]');
-        for (const el of msgEls) {
-          const dataId = el.getAttribute('data-id') || '';
-          const match = dataId.match(/(?:true|false)_(\d{8,14})@c\.us/);
-          if (match && isValidRealPhoneNumber(match[1])) {
-            phone = '+' + match[1];
-            break;
+          if (typeof o.phoneNumber === 'string' && isValidRealPhoneNumber(o.phoneNumber)) {
+            return o.phoneNumber.trim();
           }
-        }
+
+          if (o.pnId && typeof o.pnId === 'object') {
+            if (o.pnId.server === 'c.us' && o.pnId.user && isValidRealPhoneNumber(o.pnId.user)) {
+              return '+' + o.pnId.user;
+            }
+            if (typeof o.pnId._serialized === 'string' && o.pnId._serialized.endsWith('@c.us')) {
+              const m = o.pnId._serialized.match(/^(\d{8,14})@c\.us$/);
+              if (m && isValidRealPhoneNumber(m[1])) return '+' + m[1];
+            }
+          }
+
+          if (o.id && typeof o.id === 'object' && o.id.server !== 'lid') {
+            if ((o.id.server === 'c.us' || o.id.server === 's.whatsapp.net') && o.id.user) {
+              if (isValidRealPhoneNumber(o.id.user)) return '+' + o.id.user;
+            }
+            if (typeof o.id._serialized === 'string' && o.id._serialized.endsWith('@c.us')) {
+              const m = o.id._serialized.match(/^(\d{8,14})@c\.us$/);
+              if (m && isValidRealPhoneNumber(m[1])) return '+' + m[1];
+            }
+          }
+
+          if (typeof o._serialized === 'string' && (o._serialized.endsWith('@c.us') || o._serialized.endsWith('@s.whatsapp.net'))) {
+            const m = o._serialized.match(/^(\d{8,14})@(c\.us|s\.whatsapp\.net)$/);
+            if (m && isValidRealPhoneNumber(m[1])) return '+' + m[1];
+          }
+
+          for (const k of ['contact', 'chat', 'pnId', 'user', 'sender', 'author']) {
+            if (o[k]) {
+              const r = inspectObj(o[k], depth + 1, visited);
+              if (r) return r;
+            }
+          }
+          return null;
+        };
+
+        const scanFiber = (domNode) => {
+          if (!domNode) return null;
+          const keys = Object.keys(domNode);
+          const fKey = keys.find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+          const pKey = keys.find(k => k.startsWith('__reactProps$'));
+
+          if (pKey && domNode[pKey]) {
+            const r = inspectObj(domNode[pKey]);
+            if (r) return r;
+          }
+          if (fKey && domNode[fKey]) {
+            let f = domNode[fKey];
+            let d = 0;
+            while (f && d < 40) {
+              if (f.memoizedProps) {
+                const r = inspectObj(f.memoizedProps);
+                if (r) return r;
+              }
+              f = f.return;
+              d++;
+            }
+          }
+          return null;
+        };
+
+        phone = scanFiber(mainContainer) || scanFiber(mainHeader);
+      } catch (_e) {}
+
+      // 2. قراءة لوحة معلومات جهة الاتصال (Contact Info Drawer)
+      if (!phone || !isValidRealPhoneNumber(phone)) {
+        try {
+          let drawer = document.querySelector('[data-testid="contact-info-drawer"]') ||
+                       document.querySelector('div[role="region"][aria-label*="Contact"]') ||
+                       document.querySelector('div[role="region"][aria-label*="جهة"]') ||
+                       document.querySelector('div[role="region"][aria-label*="معلومات"]') ||
+                       document.querySelector('section');
+
+          let opened = false;
+          if (!drawer) {
+            // تجنب النقر على صورة الحساب الشخصية (Avatar) واستهداف زر الاسم/العنوان فقط
+            const titleClickEl =
+              mainHeader.querySelector('[data-testid="conversation-info-header-chat-title"]')?.closest('div[role="button"]') ||
+              mainHeader.querySelector('span[title]')?.closest('div[role="button"]') ||
+              mainHeader.querySelector('span[dir="auto"]')?.closest('div[role="button"]') ||
+              Array.from(mainHeader.querySelectorAll('div[role="button"]')).find(el => !el.querySelector('img') && !el.getAttribute('data-testid')?.includes('avatar')) ||
+              mainHeader.querySelector('[data-testid="conversation-info-header-chat-title"]') ||
+              mainHeader.querySelector('span[title]');
+
+            if (titleClickEl) {
+              titleClickEl.click();
+              opened = true;
+              await new Promise(r => setTimeout(r, 250));
+              drawer = document.querySelector('[data-testid="contact-info-drawer"]') ||
+                       document.querySelector('div[role="region"][aria-label*="Contact"]') ||
+                       document.querySelector('div[role="region"][aria-label*="جهة"]') ||
+                       document.querySelector('div[role="region"][aria-label*="معلومات"]') ||
+                       document.querySelector('section');
+            }
+          }
+
+          if (drawer) {
+            const intlRegex = /(?:\+|00)\s*(?:20|966|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|\d{1,3})\s*[\d\s\-()]{7,13}\d/;
+            const egRegex = /\b01[0125][\d\s\-]{8}\b/;
+            const textEls = drawer.querySelectorAll('span, div');
+            for (const el of textEls) {
+              const txt = (el.getAttribute('title') || el.textContent || '').trim();
+              const m = txt.match(intlRegex) || txt.match(egRegex);
+              if (m && isValidRealPhoneNumber(m[0])) {
+                phone = m[0].trim();
+                break;
+              }
+            }
+
+            if (opened) {
+              // إغلاق الدرج فوراً لتبقى المحادثة مفتوحة
+              const closeBtn = drawer.querySelector('button[aria-label*="Close"], button[aria-label*="إغلاق"], span[data-testid="x"]')?.closest('button') ||
+                               drawer.querySelector('button');
+              if (closeBtn) closeBtn.click();
+            }
+
+            // إغلاق أي نافذة صور أو عارض وسائط فوراً
+            const mediaCloseBtn = document.querySelector('[data-testid="media-viewer"] button, button[aria-label*="Close photo"], button[aria-label*="إغلاق الصورة"]');
+            if (mediaCloseBtn) mediaCloseBtn.click();
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+          }
+        } catch (_e) {}
       }
 
-      // الاستراتيجية 2: البحث في صورة الحساب الشخصية بالترويسة
-      if (!phone) {
+      // 3. البحث في صور الأفاتار (@c.us فقط)
+      if (!phone || !isValidRealPhoneNumber(phone)) {
         const images = mainHeader.querySelectorAll('img');
         for (const img of images) {
           const src = img.getAttribute('src') || '';
-          const match =
-            src.match(/[?&]u=(\d{8,14})(?:%40|@)c\.us/) ||
-            src.match(/\b(\d{8,14})%40c\.us/) ||
-            src.match(/\b(\d{8,14})@c\.us/);
+          const match = src.match(/[?&]u=(\d{8,14})(?:%40|@)c\.us/) ||
+                        src.match(/\b(\d{8,14})%40c\.us/) ||
+                        src.match(/\b(\d{8,14})@c\.us/);
           if (match && isValidRealPhoneNumber(match[1])) {
             phone = '+' + match[1];
             break;
@@ -932,58 +873,71 @@ async function extractActiveContactInfoFromDOM() {
         }
       }
 
-      // الاستراتيجية 3: فحص المحادثة النشطة في القائمة الجانبية (#pane-side)
-      if (!phone) {
-        const activeSideChat =
-          document.querySelector('#pane-side div[aria-selected="true"]') ||
-          document.querySelector('#pane-side div[tabindex="0"]');
-        if (activeSideChat) {
-          const sideImgs = activeSideChat.querySelectorAll('img');
-          for (const img of sideImgs) {
-            const src = img.getAttribute('src') || '';
-            const match =
-              src.match(/[?&]u=(\d{8,14})(?:%40|@)c\.us/) ||
-              src.match(/\b(\d{8,14})%40c\.us/);
-            if (match && isValidRealPhoneNumber(match[1])) {
-              phone = '+' + match[1];
-              break;
+      // 4. البحث في سمات عناصر المحادثة (@c.us وتجاهل @lid)
+      if (!phone || !isValidRealPhoneNumber(phone)) {
+        const elements = mainContainer.querySelectorAll('*');
+        for (const el of elements) {
+          for (const attr of el.attributes) {
+            if (attr.value && attr.value.includes('@c.us') && !attr.value.includes('@lid') && !attr.value.includes('@g.us')) {
+              const match = attr.value.match(/(\d{8,14})@c\.us/);
+              if (match && isValidRealPhoneNumber(match[1])) {
+                phone = '+' + match[1];
+                break;
+              }
             }
           }
+          if (phone && isValidRealPhoneNumber(phone)) break;
         }
       }
 
-      // الاستراتيجية 4 (الأقوى والأضمن): فتح وقراءة درج معلومات جهة الاتصال
-      if (!phone) {
-        phone = await readPhoneByOpeningContactDrawer(mainHeader);
+      // 5. فحص المحادثة النشطة في القائمة الجانبية (#pane-side)
+      if (!phone || !isValidRealPhoneNumber(phone)) {
+        const paneSide = document.querySelector('#pane-side');
+        if (paneSide) {
+          const sideImgs = paneSide.querySelectorAll('img');
+          for (const img of sideImgs) {
+            const src = img.getAttribute('src') || '';
+            const match = src.match(/[?&]u=(\d{8,14})(?:%40|@)c\.us/) ||
+                          src.match(/\b(\d{8,14})%40c\.us/);
+            if (match && isValidRealPhoneNumber(match[1])) {
+              const parentRow = img.closest('div[role="listitem"], div[role="row"], div[tabindex]');
+              if (parentRow && (parentRow.textContent.includes(name) || parentRow.getAttribute('aria-selected') === 'true')) {
+                phone = '+' + match[1];
+                break;
+              }
+            }
+          }
+        }
       }
     }
 
     if (phone && isValidRealPhoneNumber(phone)) {
       phone = cleanAndFormatPhoneNumber(phone);
     } else {
-      phone = '';
+      phone = ''; // منع أي معرف LID غير صالح
     }
 
     if (!name && !phone) {
       return {
         ok: false,
-        error: 'تعذر قراءة بيانات المحادثة. يرجى التأكد من فتح محادثة العميل/ة في واتساب ويب.',
+        error: 'تعذر قراءة بيانات جهة الاتصال. يرجى التأكد من اختيار المحادثة.'
       };
+    }
+
+    let warning;
+    if (name && !phone) {
+      warning = `تم سحب الاسم ("${name}"). لم يتم العثور على رقم هاتف حقيقي في الترويسة بسبب إعدادات الخصوصية؛ يرجى كتابة رقم الهاتف يدوياً في الخانة.`;
     }
 
     return {
       ok: true,
-      name: name || '',
-      phone: phone || '',
       data: {
-        name: name || '',
-        phone: phone || '',
+        name,
+        phone,
       },
+      warning
     };
   } catch (err) {
-    return {
-      ok: false,
-      error: `حدث خطأ أثناء استخراج البيانات: ${err.message}`,
-    };
+    return { ok: false, error: `فشل قراءة بيانات جهة الاتصال: ${err.message}` };
   }
 }

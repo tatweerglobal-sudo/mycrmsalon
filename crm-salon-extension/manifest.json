@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "My CRM Salon - التقاط العميلات وتنسيق المواعيد",
-  "version": "1.0.0",
-  "version_name": "1.0.0-production",
+  "version": "1.0.1",
+  "version_name": "1.0.1-stable",
   "description": "إضافة التقاط بيانات العميلات والخدمات المطلوبة من واتساب ويب ومزامنتها مباشرة مع صالونك في My CRM Salon",
   "permissions": [
     "storage",
@@ -18,7 +18,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "تسجيل عميلة في My CRM Salon",
+    "default_title": "تسجيل عميلة في My CRM Salon (مزامنة مباشرة)",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -43,5 +43,6 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3jup6XgS6/E8ZEdS78wCb5eEsawQ2Xdmm93b/Yc5BTQ3U6Jm7e2YVw6cKcgAKx5qmO3vulqbGX7FRex17udn+eqZe25+Mj0WSw71L3Pd5o/lSOAvmJDu21clxb/XNc3Fcs/Ivyx5WuqCmFkHDqmQv7XkR90caCJ1oX9pVxY1M8OdCYVKynRmtz4SgSB3ycY5l9jCMQVFp+tJg0OD80DNrNLHePx4TNO2sYkwVFbd64X88pbcnMHJYLh0J+v96yC6Rk3SqMW4eGgKHOZC/hqYWErsFZgNpt18yQ7x5q5+WWwr9PUmhCAIoNrl4lL9r1aJGjtiCWKMjAUkRiy+Nye0XwIDAQAB"
 }
