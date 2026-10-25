@@ -227,8 +227,8 @@ export async function revokeAllUserSessions(pool: Pool, userId: string): Promise
 export const SESSION_COOKIE_OPTIONS = {
   name: 'salon_session',
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict' as const,
+  secure: true,
+  sameSite: 'none' as const,
   path: '/',
   maxAge: DEFAULT_SESSION_DURATION_MS / 1000,
 };

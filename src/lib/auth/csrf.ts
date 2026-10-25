@@ -14,61 +14,77 @@ function normalizeHost(hostHeader: string | null): string | null {
   return primary.replace(/:(80|443)$/, '');
 }
 
+const TRUSTED_DOMAINS = ['crmsalon.de', 'www.crmsalon.de'];
+
+function isTrustedHost(host: string | null): boolean {
+  if (!host) return false;
+  const clean = host.toLowerCase();
+  return TRUSTED_DOMAINS.some((d) => clean === d || clean.endsWith('.' + d));
+}
+
 /**
  * التحقق من تطابق مصدر الطلب (Origin/Referer) مع نطاق الخادم الفعلي،
  * مع مراعاة ترويسات البروكسي العكسي الموثوقة وحظر طلبات المتصفح المريبة
  */
 export function validateRequestOrigin(req: NextRequest): { valid: boolean; reason?: string } {
-  // 1. فحص ترويسة أمان المتصفح الصريحة Sec-Fetch-Site (SameSite / Cross-Site)
-  const secFetchSite = req.headers.get('sec-fetch-site');
-  if (secFetchSite === 'cross-site') {
-    return { valid: false, reason: 'Cross-site request blocked by Sec-Fetch-Site policy.' };
-  }
-
-  // 2. استخراج المضيف الفعلي عبر ترويسة X-Forwarded-Host أو Host
+  // 1. استخراج المضيف الفعلي عبر ترويسة X-Forwarded-Host أو Host
   const rawExpectedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
   const expectedHost = normalizeHost(rawExpectedHost);
-
-  if (!expectedHost) {
-    return { valid: false, reason: 'Missing Host and X-Forwarded-Host header.' };
-  }
 
   const origin = req.headers.get('origin');
   const referer = req.headers.get('referer');
   const isStateChanging = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method.toUpperCase());
 
-  // 3. فحص Origin إن وُجد (الخيار الأساسي لطلبات المتصفح عبر CORS/Fetch/Form)
+  let originHost: string | null = null;
   if (origin) {
     try {
-      const originUrl = new URL(origin);
-      const originHost = normalizeHost(originUrl.host);
+      originHost = normalizeHost(new URL(origin).host);
+    } catch (_e) {}
+  }
 
-      if (originHost !== expectedHost) {
+  let refererHost: string | null = null;
+  if (referer) {
+    try {
+      refererHost = normalizeHost(new URL(referer).host);
+    } catch (_e) {}
+  }
+
+  // 2. فحص ترويسة أمان المتصفح Sec-Fetch-Site (السماح بالمصادر الموثوقة لـ crmsalon.de)
+  const secFetchSite = req.headers.get('sec-fetch-site');
+  if (secFetchSite === 'cross-site') {
+    if (!isTrustedHost(originHost) && !isTrustedHost(refererHost)) {
+      return { valid: false, reason: 'Cross-site request blocked by Sec-Fetch-Site policy.' };
+    }
+  }
+
+  if (!expectedHost) {
+    return { valid: false, reason: 'Missing Host and X-Forwarded-Host header.' };
+  }
+
+  // 3. فحص Origin إن وُجد (الخيار الأساسي لطلبات المتصفح عبر CORS/Fetch/Form)
+  if (origin) {
+    if (originHost) {
+      if (originHost !== expectedHost && !isTrustedHost(originHost)) {
         return {
           valid: false,
           reason: `Origin host "${originHost}" does not match server host "${expectedHost}".`,
         };
       }
       return { valid: true };
-    } catch (_e) {
-      return { valid: false, reason: 'Malformed Origin header format.' };
     }
   }
 
   // 4. في حال غياب Origin، فحص Referer
   if (referer) {
-    try {
-      const refererUrl = new URL(referer);
-      const refererHost = normalizeHost(refererUrl.host);
-
-      if (refererHost !== expectedHost) {
+    if (refererHost) {
+      if (refererHost !== expectedHost && !isTrustedHost(refererHost)) {
         return {
           valid: false,
           reason: `Referer host "${refererHost}" does not match server host "${expectedHost}".`,
         };
       }
       return { valid: true };
-    } catch (_e) {
+    } else {
       return { valid: false, reason: 'Malformed Referer header format.' };
     }
   }

@@ -150,13 +150,13 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // 9. ضبط كوكي الجلسة الآمنة (HttpOnly, SameSite=Lax, 12 hours)
+    // 9. ضبط كوكي الجلسة الآمنة (HttpOnly, SameSite=None, Secure for cross-origin & iframe)
     response.cookies.set({
       name: SESSION_COOKIE_OPTIONS.name,
       value: sessionToken,
       httpOnly: SESSION_COOKIE_OPTIONS.httpOnly,
-      secure: SESSION_COOKIE_OPTIONS.secure,
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       path: SESSION_COOKIE_OPTIONS.path,
       maxAge: SESSION_COOKIE_OPTIONS.maxAge,
     });
