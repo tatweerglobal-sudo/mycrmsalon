@@ -310,6 +310,13 @@ export async function runE2E() {
     // =========================================================================
     await executeScenario('SEC-05', 'Rate limiting MUST block repeated failed attempts with HTTP 429', async (ctx) => {
       const page = await ctx.newPage();
+      let http429Received = false;
+      page.on('response', (res) => {
+        if (res.url().includes('/api/auth/login') && res.status() === 429) {
+          http429Received = true;
+        }
+      });
+
       await page.goto(`${BASE_URL}/login`);
 
       const attackEmail = `rate_test_${synthTag}@crmsalon.test`;
@@ -326,6 +333,10 @@ export async function runE2E() {
           rateLimitTriggered = true;
           break;
         }
+      }
+
+      if (!http429Received) {
+        throw new Error('FATAL SECURITY FLAW: HTTP 429 response code was NOT received from /api/auth/login!');
       }
 
       if (!rateLimitTriggered) {
@@ -444,6 +455,43 @@ export async function runE2E() {
         throw new Error(`Reused revoked session token was accepted! Status: ${reuseRes.status()}`);
       }
       console.log('✅ تم التحقق: التوكن السابق تم إبطاله تماماً على خادم قاعدة البيانات.');
+    });
+
+    // =========================================================================
+    // السيناريو 7B: فحص رفض التوكنات الملغاة على الصفحات المحمية (Replayed Revoked Session Rejected)
+    // =========================================================================
+    await executeScenario('SEC-07B', 'Protected pages strictly reject replayed revoked session cookie against Neon', async (ctx) => {
+      // حقن الكوكي الملغى (الذي تم إبطاله بزيادة token_version على الخادم في SEC-07)
+      await ctx.addCookies([
+        {
+          name: 'salon_session',
+          value: ownerSessionCookie,
+          domain: '127.0.0.1',
+          path: '/',
+          httpOnly: true,
+          sameSite: 'Lax',
+        },
+      ]);
+      const page = await ctx.newPage();
+
+      // 1. محاولة فتح لوحة التحكم بالكوكي الملغى -> يجب تحويل المستخدم لـ /login
+      await page.goto(`${BASE_URL}/`);
+      await page.waitForLoadState('networkidle');
+      if (!page.url().includes('/login')) {
+        throw new Error(`CRITICAL SECURITY FAILURE: Revoked session cookie granted access to "/"! URL: ${page.url()}`);
+      }
+
+      // 2. محاولة فتح صفحة العملاء بالكوكي الملغى -> يجب تحويل المستخدم لـ /login
+      await page.goto(`${BASE_URL}/customers`);
+      await page.waitForLoadState('networkidle');
+      if (!page.url().includes('/login')) {
+        throw new Error(`CRITICAL SECURITY FAILURE: Revoked session cookie granted access to "/customers"! URL: ${page.url()}`);
+      }
+
+      const screenshot5b = path.join(SCREENSHOTS_DIR, '05b-revoked-cookie-rejected.png');
+      await page.screenshot({ path: screenshot5b });
+      console.log(`📸 تم حفظ لقطة الشاشة: ${screenshot5b}`);
+      console.log('✅ تم التحقق: الصفحات المحمية ترفض التوكنات الملغاة وتحول لصفحة الدخول.');
     });
 
     // =========================================================================

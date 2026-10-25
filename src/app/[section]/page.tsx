@@ -18,8 +18,8 @@ interface SectionPageProps {
   };
 }
 
-export default function SectionPage({ params }: SectionPageProps) {
-  const session = requireServerSession();
+export default async function SectionPage({ params }: SectionPageProps) {
+  const session = await requireServerSession();
   const section = getSalonSection(params.section);
   if (!section) notFound();
 
