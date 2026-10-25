@@ -136,6 +136,7 @@ export async function POST(req: NextRequest) {
     const response = NextResponse.json({
       success: true,
       message: 'تم تسجيل الدخول بنجاح',
+      token: sessionToken,
       user: {
         id: user.id,
         email: user.email,

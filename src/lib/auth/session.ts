@@ -232,3 +232,35 @@ export const SESSION_COOKIE_OPTIONS = {
   path: '/',
   maxAge: DEFAULT_SESSION_DURATION_MS / 1000,
 };
+
+/**
+ * استخراج جلسة المستخدم الموثقة من الطلب مع دعم الكوكي، ترويسة Authorization Bearer، وترويسة x-session-token، ومعلمة الرابط st
+ */
+export function getSessionFromRequest(req: {
+  cookies: { get: (name: string) => { value: string } | undefined };
+  headers: { get: (name: string) => string | null };
+  nextUrl?: { searchParams: { get: (name: string) => string | null } };
+}): SessionPayload | null {
+  const cookie = req.cookies.get('salon_session')?.value;
+  if (cookie) {
+    const s = verifySessionToken(cookie);
+    if (s) return s;
+  }
+  const authHeader = req.headers.get('authorization');
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+    const token = authHeader.slice(7).trim();
+    const s = verifySessionToken(token);
+    if (s) return s;
+  }
+  const headerToken = req.headers.get('x-session-token');
+  if (headerToken) {
+    const s = verifySessionToken(headerToken);
+    if (s) return s;
+  }
+  const tokenParam = req.nextUrl?.searchParams?.get('st');
+  if (tokenParam) {
+    const s = verifySessionToken(tokenParam);
+    if (s) return s;
+  }
+  return null;
+}

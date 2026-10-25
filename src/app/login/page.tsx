@@ -29,8 +29,21 @@ export default function LoginPage() {
         throw new Error(data.error || 'فشل تسجيل الدخول. يرجى التحقق من البيانات.');
       }
 
-      // توجيه المستخدم إلى لوحة التحكم الرئيسية بعد تسجيل الدخول بنجاح
-      window.location.href = '/';
+      if (data.token) {
+        try {
+          localStorage.setItem('salon_token', data.token);
+          sessionStorage.setItem('salon_token', data.token);
+        } catch (_e) {}
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'SALON_AUTH_SUCCESS', token: data.token }, '*');
+          }
+        } catch (_e) {}
+      }
+
+      // توجيه المستخدم إلى لوحة التحكم الرئيسية بعد تسجيل الدخول بنجاح مع تمرير التوكن لدعم الأطر والمتصفحات المقيدة
+      const redirectTarget = data.token ? `/?st=${encodeURIComponent(data.token)}` : '/';
+      window.location.href = redirectTarget;
     } catch (err: unknown) {
       setError((err as Error).message || 'حدث خطأ غير متوقع أثناء الاتصال بالخادم.');
     } finally {

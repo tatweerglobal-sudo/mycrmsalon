@@ -25,15 +25,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 3. قراءة كوكي الجلسة والتحقق من التوقيع والصلاحية
-  const sessionCookie = request.cookies.get('salon_session')?.value;
-  const session = sessionCookie ? await verifySessionInEdge(sessionCookie) : null;
+  // 3. قراءة توكن الجلسة (من الكوكي، أو ترويسة Authorization، أو معلمة الرابط st)
+  const authHeader = request.headers.get('authorization');
+  const bearerToken =
+    authHeader && authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : null;
+  const tokenParam = request.nextUrl.searchParams.get('st');
+  const sessionToken = request.cookies.get('salon_session')?.value || bearerToken || tokenParam;
+  const session = sessionToken ? await verifySessionInEdge(sessionToken) : null;
 
   // 4. معالجة صفحة تسجيل الدخول (/login)
   if (pathname === '/login') {
     // إذا كان المستخدم مسجل دخول بالفعل بجلسة صالحة، تحويله مباشرة إلى لوحة التحكم
     if (session) {
-      return NextResponse.redirect(new URL('/', request.url));
+      const redirectUrl = new URL('/', request.url);
+      if (tokenParam) {
+        redirectUrl.searchParams.set('st', tokenParam);
+      }
+      return NextResponse.redirect(redirectUrl);
     }
     return NextResponse.next();
   }
@@ -53,14 +61,38 @@ export async function middleware(request: NextRequest) {
     const response = NextResponse.redirect(loginUrl);
 
     // مسح الكوكي التالف أو منتهي الصلاحية إن وجد
-    if (sessionCookie) {
+    if (request.cookies.has('salon_session')) {
       response.cookies.delete('salon_session');
     }
     return response;
   }
 
-  // 6. جلسة صالحة ومؤكدة -> السماح بالمرور
-  return NextResponse.next();
+  // 6. جلسة صالحة ومؤكدة -> تمرير التوكن في ترويسات الطلب للمكونات الخادمة والـ APIs
+  const requestHeaders = new Headers(request.headers);
+  if (sessionToken) {
+    requestHeaders.set('x-session-token', sessionToken);
+  }
+
+  const response = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
+
+  // تعزيز حفظ الكوكي في الرد أيضاً
+  if (sessionToken && !request.cookies.has('salon_session')) {
+    response.cookies.set({
+      name: 'salon_session',
+      value: sessionToken,
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      path: '/',
+      maxAge: 43200,
+    });
+  }
+
+  return response;
 }
 
 export const config = {

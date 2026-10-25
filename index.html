@@ -124,6 +124,16 @@
         targetUrl += currentSearch;
       }
 
+      // استرجاع التوكن المحفوظ لضمان بقاء الجلسة عند إعادة التحميل
+      let savedToken = null;
+      try {
+        savedToken = localStorage.getItem('crmsalon_token');
+      } catch (_e) {}
+
+      if (savedToken && !targetUrl.includes('st=')) {
+        targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'st=' + encodeURIComponent(savedToken);
+      }
+
       frame.src = targetUrl;
 
       // إخفاء شاشة التحميل عند اكتمال تحميل الإطار
@@ -138,12 +148,19 @@
         loader.classList.add("hidden");
       }, 3500);
 
-      // الاستماع للرسائل لتحديث شريط العنوان في المتصفح إذا تنقل المستخدم داخل السي آر إم
+      // الاستماع للرسائل لتحديث شريط العنوان وحفظ التوكن
       window.addEventListener("message", function(e) {
-        if (e.origin === BASE_URL && e.data && e.data.path) {
-          try {
-            window.history.replaceState(null, "", e.data.path);
-          } catch(err) {}
+        if (e.origin === BASE_URL && e.data) {
+          if (e.data.type === 'SALON_AUTH_SUCCESS' && e.data.token) {
+            try {
+              localStorage.setItem('crmsalon_token', e.data.token);
+            } catch(_e) {}
+          }
+          if (e.data.path) {
+            try {
+              window.history.replaceState(null, "", e.data.path);
+            } catch(err) {}
+          }
         }
       });
     })();

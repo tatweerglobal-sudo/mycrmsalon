@@ -3,7 +3,7 @@
 // حماية ضد تجاوز الـ Middleware وضمان عدم تسريب أي بيانات حساسة للمستخدمين المجهولين
 // يتحقق مباشرة من قاعدة بيانات Neon لحالة المستخدم والعضوية والصالون وعدم إبطال التوكن (token_version)
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getDbPool } from '@/lib/db';
 import { verifySessionToken, validateSessionState, type SessionPayload } from './session';
@@ -23,7 +23,8 @@ export async function requireServerSession(): Promise<SessionPayload> {
   }
 
   const cookieStore = cookies();
-  const token = cookieStore.get('salon_session')?.value;
+  const headersList = headers();
+  const token = cookieStore.get('salon_session')?.value || headersList.get('x-session-token');
   if (!token) {
     redirect('/login');
   }
