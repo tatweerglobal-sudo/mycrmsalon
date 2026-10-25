@@ -10,8 +10,8 @@ Options -Indexes
   # Allow Let's Encrypt SSL validation
   RewriteRule ^\.well-known/ - [L]
 
-  # Route all requests to live production server
-  RewriteRule ^(.*)$ https://anna-lined-will-belief.trycloudflare.com/$1 [P,L]
+  # Redirect seamlessly to live production application
+  RewriteRule ^(.*)$ https://anna-lined-will-belief.trycloudflare.com/$1 [R=302,L]
 </IfModule>
 
 # Caching for Next.js static assets
