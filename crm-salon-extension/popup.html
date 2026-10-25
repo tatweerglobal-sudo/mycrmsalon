@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>My CRM Salon - التقاط العميلات وتنسيق المواعيد</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", sans-serif; }
+    body { width: 395px; padding: 14px; background-color: #fff1f2; color: #1e293b; font-size: 13px; line-height: 1.4; }
+    
+    /* Header */
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #fecdd3; padding-bottom: 8px; }
+    .title { font-size: 14px; font-weight: 800; color: #881337; display: flex; align-items: center; gap: 6px; }
+    .badge { font-size: 10px; font-weight: 700; background: #ffe4e6; color: #9f1239; padding: 2px 7px; border-radius: 6px; border: 1px solid #fecdd3; }
+    .badge-offline { background: #fffbeb; color: #b45309; border-color: #fcd34d; }
+    
+    /* Sync Bar */
+    .sync-bar { display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #fecdd3; padding: 6px 10px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; shadow: 0 1px 2px rgba(0,0,0,0.03); }
+    .sync-info { display: flex; align-items: center; gap: 5px; color: #9f1239; font-weight: 600; }
+    .btn-refresh { background: #fff1f2; border: 1px solid #fda4af; color: #9f1239; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 4px; }
+    .btn-refresh:hover { background: #ffe4e6; border-color: #fb7185; }
+    .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Cache Warning Banner */
+    .cache-banner { display: none; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 6px 8px; border-radius: 6px; font-size: 11px; margin-bottom: 10px; line-height: 1.3; }
+
+    /* Capture Button */
+    .btn-capture { width: 100%; background: linear-gradient(135deg, #be123c, #9f1239); color: white; border: none; padding: 9px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 10px; font-size: 12px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(190, 18, 60, 0.2); }
+    .btn-capture:hover { background: linear-gradient(135deg, #9f1239, #881337); }
+    .btn-capture:active { transform: translateY(1px); }
+
+    /* Forms & Inputs */
+    .form-group { margin-bottom: 8px; }
+    .label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+    label { font-size: 11px; font-weight: 600; color: #4c0519; }
+    .meta-tag { font-size: 10px; color: #9f1239; background: #ffe4e6; padding: 1px 5px; border-radius: 4px; font-weight: 600; border: 1px solid #fecdd3; }
+
+    input[type="text"], input[type="password"], input[type="date"], input[type="datetime-local"], select, textarea {
+      width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: white; color: #0f172a;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #be123c; box-shadow: 0 0 0 2px rgba(190, 18, 60, 0.15); }
+    textarea { resize: vertical; height: 46px; }
+
+    .phone-input {
+      direction: ltr !important;
+      text-align: left !important;
+      unicode-bidi: isolate !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      letter-spacing: 0.5px;
+    }
+
+    .custom-job-notice { font-size: 10px; color: #b45309; background: #fffbeb; padding: 4px 6px; border-radius: 4px; margin-top: 4px; border: 1px solid #fef3c7; display: none; }
+
+    .checkbox-group { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+    
+    /* Tags Multi-select */
+    .tags-selector-box { display: flex; flex-wrap: wrap; gap: 5px; max-height: 85px; overflow-y: auto; background: #ffffff; border: 1px solid #fecdd3; border-radius: 8px; padding: 6px; min-height: 36px; }
+    .tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; border: 1px solid #cbd5e1; background: white; color: #334155; cursor: pointer; user-select: none; transition: all 0.15s ease; }
+    .tag-chip:hover { border-color: #fda4af; background: #fff1f2; }
+    .tag-chip.selected { background: #9f1239; color: white; border-color: #9f1239; }
+    .tag-chip.custom { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+    .tag-chip.custom.selected { background: #b45309; color: white; border-color: #b45309; }
+
+    /* Submit Button */
+    .btn-submit { width: 100%; background: #be123c; color: white; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px; margin-top: 4px; transition: background 0.2s; box-shadow: 0 2px 4px rgba(190, 18, 60, 0.25); }
+    .btn-submit:hover { background: #9f1239; }
+    .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* Alerts */
+    .alert { margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 11px; display: none; line-height: 1.4; word-break: break-word; }
+    .alert-success { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+    .alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+    .alert-warning { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+
+    /* Settings Box */
+    .settings-toggle { color: #881337; font-size: 11px; cursor: pointer; text-decoration: underline; margin-top: 10px; text-align: center; font-weight: 600; padding: 4px; }
+    .settings-toggle:hover { color: #4c0519; }
+    .settings-box { display: none; margin-top: 8px; padding: 10px; background: #ffffff; border-radius: 8px; border: 1px solid #fecdd3; font-size: 11px; }
+    .btn-save { width: 100%; padding: 6px; font-size: 11px; background: #be123c; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 6px; }
+    .btn-save:hover { background: #9f1239; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">
+      <span>✨ My CRM Salon</span>
+      <span class="badge" id="appModeBadge">خدمات معتمدة ✓</span>
+    </div>
+    <span class="badge" id="versionBadge">v1.0 Production</span>
+  </div>
+
+  <!-- شريط المزامنة المباشرة من CRM -->
+  <div class="sync-bar">
+    <div class="sync-info">
+      <span id="syncStatusDot">🟢</span>
+      <span id="syncStatusText">آخر تحديث: جاري التحقق...</span>
+    </div>
+    <button type="button" id="btnSyncNow" class="btn-refresh" title="جلب أحدث الخدمات والأخصائيات المعتمدة من نظام الصالون">
+      <span>تحديث القوائم</span>
+      <span>🔄</span>
+    </button>
+  </div>
+
+  <!-- تنبيه القوائم المخزنة محلياً عند عدم الاتصال -->
+  <div id="cacheBanner" class="cache-banner">
+    ⚠️ <strong>نسخة مخزنة محلياً:</strong> تعذر الاتصال بالخادم مؤقتاً، يتم عرض آخر خدمات معتمدة محفوظة على هذا الجهاز (<span id="cacheTimeText"></span>).
+  </div>
+
+  <button type="button" id="btnCaptureActive" class="btn-capture">
+    📥 سحب الاسم والرقم من محادثة واتساب النشطة
+  </button>
+
+  <div id="alertBox" class="alert"></div>
+
+  <form id="leadForm">
+    <div class="form-group">
+      <div class="label-row">
+        <label for="phone">رقم هاتف العميل/ة *</label>
+      </div>
+      <input type="text" id="phone" required dir="ltr" class="phone-input" placeholder="+9665XXXXXXXX أو 05XXXXXXXX أو +201XXXXXXXXX">
+    </div>
+
+    <div class="form-group">
+      <div class="label-row">
+        <label for="name">اسم العميل/ة</label>
+      </div>
+      <input type="text" id="name" placeholder="الاسم الكامل للعميل/ة">
+    </div>
+
+    <!-- الخدمة المطلوبة: مصدرها الوحيد هو CRM الصالون -->
+    <div class="form-group">
+      <div class="label-row">
+        <label for="job">الخدمة المطلوبة (معتمدة من الصالون)</label>
+        <span class="meta-tag" id="jobsCountBadge">0 خدمة</span>
+      </div>
+      <select id="job">
+        <option value="">جاري جلب الخدمات المعتمدة...</option>
+      </select>
+      <input type="text" id="customJobInput" placeholder="اكتب مسمى الخدمة المقترحة للمراجعة..." style="display: none; margin-top: 4px;">
+      <div id="customJobNotice" class="custom-job-notice">
+        ℹ️ سيتم تسجيل هذه الخدمة كـ <strong>مقترح غير معتمد</strong> لمراجعة إدارة الصالون، ولن تدخل القائمة الرسمية إلا بعد اعتمادها.
+      </div>
+    </div>
+
+    <!-- الحالة والأخصائية المسؤولة: معتمدان من CRM -->
+    <div style="display: flex; gap: 8px;">
+      <div class="form-group" style="flex: 1;">
+        <div class="label-row">
+          <label for="status">حالة العميل/ة</label>
+        </div>
+        <select id="status">
+          <option value="جديد">جديد</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="flex: 1;">
+        <div class="label-row">
+          <label for="employee">الأخصائية / الموظفة</label>
+        </div>
+        <select id="employee">
+          <option value="">(تلقائي: موظفة الاستقبال)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- وسوم العميل/ة: معتمدة من CRM + إمكانية اقتراح وسم جديد -->
+    <div class="form-group">
+      <div class="label-row">
+        <label>وسوم وتصنيف العميل/ة (اختيار متعدد)</label>
+        <span class="meta-tag" id="tagsCountBadge">0 وسم</span>
+      </div>
+      <div id="tagsContainer" class="tags-selector-box">
+        <span style="font-size: 11px; color: #94a3b8;">جاري تحميل وسوم الصالون...</span>
+      </div>
+      <div style="display: flex; gap: 6px; margin-top: 5px;">
+        <input type="text" id="customTagInput" placeholder="أو اكتب وسماً إضافياً (مثال: عروس، كيراتين)..." style="flex: 1; font-size: 11px; padding: 4px 8px;">
+        <button type="button" id="btnAddCustomTag" style="padding: 4px 10px; font-size: 11px; font-weight: bold; background: #be123c; color: white; border: none; border-radius: 6px; cursor: pointer;">إضافة</button>
+      </div>
+      <div id="customTagsNotice" class="custom-job-notice">
+        ℹ️ الوسوم غير المعتمدة ستُسجّل كـ <strong>مقترحات للمراجعة</strong> في لوحة الصالون دون إضافتها للقائمة الرسمية فوراً.
+      </div>
+    </div>
+
+    <div class="checkbox-group">
+      <input type="checkbox" id="interviewed">
+      <label for="interviewed" style="font-weight: bold; color: #881337; cursor: pointer;">تم تأكيد موعد مسبق / حجزت بالفعل</label>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <div class="form-group" style="flex: 1;">
+        <label for="followUpDate">تاريخ المتابعة</label>
+        <input type="date" id="followUpDate">
+      </div>
+      <div class="form-group" style="flex: 1;">
+        <label for="interviewDate">موعد الحجز / الزيارة</label>
+        <input type="datetime-local" id="interviewDate">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="notes">ملاحظات وتفضيلات العميل/ة</label>
+      <textarea id="notes" placeholder="ملخص سريع لطلب العميل/ة أو استفسار محادثة الواتساب..."></textarea>
+    </div>
+
+    <button type="submit" id="btnSubmit" class="btn-submit">
+      🚀 إرسال العميل/ة إلى نظام الصالون
+    </button>
+  </form>
+
+  <div class="settings-toggle" id="toggleSettings">⚙️ إعدادات رابط الصالون ورمز الدخول (Bearer Token)</div>
+
+  <div class="settings-box" id="settingsBox">
+    <div style="font-weight: bold; margin-bottom: 6px; color: #881337;">بيانات الاتصال بنظام My CRM Salon:</div>
+    <div class="form-group">
+      <label for="apiUrl">رابط الخادم (Base URL):</label>
+      <input type="text" id="apiUrl" dir="ltr" placeholder="https://crmsalon.de/api/v1/extension/capture">
+    </div>
+    <div class="form-group">
+      <label for="apiToken">رمز التحقق (Bearer Token):</label>
+      <input type="password" id="apiToken" dir="ltr" placeholder="أدخل رمز التوكن الخاص بصالونك">
+    </div>
+    <button type="button" id="btnSaveApiSettings" class="btn-save">حفظ إعدادات الاتصال والمزامنة الآن</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
