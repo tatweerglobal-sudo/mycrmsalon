@@ -1,5 +1,4 @@
-# My CRM Salon - Hostinger Apache / LiteSpeed Configuration
-DirectoryIndex index.html
+# My CRM Salon - Hostinger Production Configuration
 
 # Prevent directory browsing
 Options -Indexes
@@ -8,12 +7,12 @@ Options -Indexes
   RewriteEngine On
   RewriteBase /
 
-  # Redirect missing trailing slash for directories
-  RewriteCond %{REQUEST_FILENAME} -d
-  RewriteRule ^(.*[^/])$ /$1/ [L,R=301]
+  # Allow Let's Encrypt SSL validation
+  RewriteRule ^\.well-known/ - [L]
 
-  # Custom 404 page
-  ErrorDocument 404 /404/index.html
+  # If Hostinger Node.js is running on internal port 3000
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^(.*)$ http://127.0.0.1:3000/$1 [P,L]
 </IfModule>
 
 # Caching for Next.js static assets
