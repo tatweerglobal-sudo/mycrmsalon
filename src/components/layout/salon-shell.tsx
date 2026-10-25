@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import NavLink from './nav-link';
 import { salonSections } from '@/lib/salon-sections';
 
@@ -25,7 +25,6 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const pathname = usePathname();
-  const router = useRouter();
 
   useEffect(() => setMenuOpen(false), [pathname]);
 
@@ -59,6 +58,21 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
     }
   };
 
+  const roleLabel = (role?: string) => {
+    switch (role) {
+      case 'salon_owner':
+        return 'مالكة الصالون (مدير عام)';
+      case 'salon_manager':
+        return 'مديرة الفرع';
+      case 'receptionist':
+        return 'موظفة استقبال';
+      case 'beauty_specialist':
+        return 'أخصائية تجميل';
+      default:
+        return 'مستخدم معتمد';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50" dir="rtl">
       {menuOpen && (
@@ -75,9 +89,9 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
       }>
         <div className="p-5 border-b border-rose-100">
           <Link href="/" className="text-xl font-black text-rose-800">My CRM Salon</Link>
-          <p className="mt-1 text-xs text-slate-500">إدارة مراكز التجميل المتكاملة</p>
+          <p className="mt-1 text-xs text-slate-500">نظام إدارة صالونات ومراكز التجميل</p>
         </div>
-        <nav className="p-3" aria-label="القائمة الرئيسية">
+        <nav className="p-3 space-y-1" aria-label="القائمة الرئيسية">
           <NavLink href="/" label="لوحة التحكم" icon={<span>🏠</span>} />
           {salonSections.map(item => (
             <NavLink key={item.slug} href={'/' + item.slug} label={item.label} icon={<span>{item.icon}</span>} />
@@ -88,12 +102,13 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
           {profile ? (
             <div>
               <p className="font-bold text-rose-900">✨ الجلسة نشطة ومؤمنة</p>
-              <p className="mt-1 text-slate-600">الدور: {profile.activeTenant?.role === 'salon_owner' ? 'مالكة الصالون' : profile.activeTenant?.role || 'مستخدم معتمد'}</p>
+              <p className="mt-1 font-medium text-slate-700">{profile.user.name}</p>
+              <p className="text-[11px] text-slate-500">{roleLabel(profile.activeTenant?.role)}</p>
             </div>
           ) : (
             <div>
-              <p className="font-bold text-rose-900">🔒 نظام متعدد المراكز</p>
-              <p className="mt-1 text-slate-600">سجّل دخولك للوصول إلى إدارة العملاء والمواعيد وصلاحيات المركز.</p>
+              <p className="font-bold text-rose-900">🔒 نظام تشغيل الإنتاج</p>
+              <p className="mt-1 text-slate-600">يرجى تسجيل الدخول للوصول إلى بيانات المركز والحجوزات.</p>
             </div>
           )}
         </div>
@@ -118,7 +133,7 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
               <div className="flex items-center gap-2 sm:gap-4">
                 <div className="hidden text-left text-xs leading-tight sm:block">
                   <p className="font-bold text-slate-900">{profile.user.name}</p>
-                  <p className="text-[11px] text-slate-500">{profile.user.email}</p>
+                  <p className="text-[11px] text-slate-500">{roleLabel(profile.activeTenant?.role)}</p>
                 </div>
                 <button
                   type="button"
@@ -144,11 +159,12 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
         </main>
       </div>
 
-      <nav aria-label="التنقل السريع للهاتف" className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-4 border-t border-slate-200 bg-white/95 p-2 pb-[max(8px,env(safe-area-inset-bottom))] shadow-xl lg:hidden">
+      <nav aria-label="التنقل السريع للهاتف" className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-5 border-t border-slate-200 bg-white/95 p-2 pb-[max(8px,env(safe-area-inset-bottom))] shadow-xl lg:hidden">
         {[
           { href: '/', label: 'الرئيسية', icon: '🏠' },
           { href: '/customers', label: 'العملاء', icon: '👥' },
           { href: '/appointments', label: 'الحجوزات', icon: '📅' },
+          { href: '/financials', label: 'المالية', icon: '💳' },
           { href: '/services', label: 'الخدمات', icon: '✨' },
         ].map(item => {
           const cleanPath = pathname === '/' ? '/' : (pathname?.replace(/\/$/, '') || '/');

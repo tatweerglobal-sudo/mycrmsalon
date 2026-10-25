@@ -66,6 +66,10 @@ export async function setupRuntimeRole(providedPassword?: string): Promise<Setup
         'staff_services',
         'appointments',
         'appointment_services',
+        'invoices',
+        'payments',
+        'products',
+        'inventory_transactions',
         'audit_logs',
         'auth_rate_limits',
       ];
