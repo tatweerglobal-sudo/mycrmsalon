@@ -29,9 +29,19 @@ export default function NavLink({ href, label, icon, badge, disabled }: NavLinkP
     );
   }
 
+  let targetHref = href;
+  if (typeof window !== 'undefined') {
+    try {
+      const token = localStorage.getItem('salon_token') || sessionStorage.getItem('salon_token');
+      if (token) {
+        targetHref = href + (href.includes('?') ? '&' : '?') + 'st=' + encodeURIComponent(token);
+      }
+    } catch (_e) {}
+  }
+
   return (
     <Link
-      href={href}
+      href={targetHref}
       className={`flex items-center justify-between px-4 py-3 rounded-lg transition-colors my-1 ${
         isActive
           ? 'bg-rose-700 text-white font-bold shadow-sm'

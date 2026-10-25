@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDbPool } from '@/lib/db';
-import { verifySessionToken, validateSessionState } from '@/lib/auth/session';
+import { verifySessionToken, validateSessionState, getSessionFromRequest } from '@/lib/auth/session';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
@@ -13,18 +13,10 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const sessionCookie = req.cookies.get('salon_session')?.value;
+    const session = getSessionFromRequest(req);
 
-    if (!sessionCookie) {
-      return NextResponse.json({ error: 'غير مصرح / لا توجد جلسة نشطة' }, { status: 401 });
-    }
-
-    // 1. فحص توقيع وصلاحية التوكن الموقّع رقمياً (HMAC-SHA256)
-    const session = verifySessionToken(sessionCookie);
     if (!session) {
-      const response = NextResponse.json({ error: 'رمز الجلسة غير صالح أو منتهي الصلاحية' }, { status: 401 });
-      response.cookies.delete('salon_session');
-      return response;
+      return NextResponse.json({ error: 'غير مصرح / لا توجد جلسة نشطة' }, { status: 401 });
     }
 
     // 2. التحقق الحي من قاعدة البيانات (الحساب نشط، التوكن لم يُبطل، الاشتراك ساري، الدور لم يتغير)

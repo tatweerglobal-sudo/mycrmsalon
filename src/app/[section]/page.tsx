@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { headers } from 'next/headers';
 import { getSalonSection, salonSections } from '@/lib/salon-sections';
 import { requireServerSession } from '@/lib/auth/server-session';
 
@@ -32,6 +33,10 @@ export default async function SectionPage({ params }: SectionPageProps) {
   const section = getSalonSection(params.section);
   if (!section) notFound();
 
+  const headersList = headers();
+  const token = headersList.get('x-session-token');
+  const makeHref = (path: string) => (token ? `${path}?st=${encodeURIComponent(token)}` : path);
+
   // فحص صلاحيات الوصول حسب الدور (Role-based access control)
   const isOwnerOrManager = session.role === 'salon_owner' || session.role === 'salon_manager' || session.isSuperAdmin;
   const isRestrictedAdminSection = ['financials', 'settings', 'staff'].includes(section.slug);
@@ -59,7 +64,7 @@ export default async function SectionPage({ params }: SectionPageProps) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Link
-            href="/"
+            href={makeHref('/')}
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs transition hover:bg-slate-100 hover:text-slate-900"
           >
             <span>←</span>
@@ -95,7 +100,7 @@ export default async function SectionPage({ params }: SectionPageProps) {
             .map((s) => (
               <Link
                 key={s.slug}
-                href={'/' + s.slug}
+                href={makeHref('/' + s.slug)}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-900"
               >
                 <span>{s.icon}</span>

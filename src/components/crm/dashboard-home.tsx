@@ -48,6 +48,16 @@ export default function DashboardHome() {
     }
   };
 
+  const makeHref = (path: string) => {
+    if (typeof window !== 'undefined') {
+      try {
+        const token = localStorage.getItem('salon_token') || sessionStorage.getItem('salon_token');
+        if (token) return path + (path.includes('?') ? '&' : '?') + 'st=' + encodeURIComponent(token);
+      } catch (_e) {}
+    }
+    return path;
+  };
+
   useEffect(() => {
     loadStats();
   }, []);
@@ -81,19 +91,19 @@ export default function DashboardHome() {
 
           <div className="flex flex-wrap gap-2.5">
             <Link
-              href="/appointments"
+              href={makeHref('/appointments')}
               className="rounded-xl bg-white px-4 py-2.5 text-xs font-black text-rose-900 shadow-md transition hover:bg-rose-50"
             >
               + حجز موعد جديد
             </Link>
             <Link
-              href="/customers"
+              href={makeHref('/customers')}
               className="rounded-xl border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-white/20"
             >
               + إضافة عميلة
             </Link>
             <Link
-              href="/financials"
+              href={makeHref('/financials')}
               className="rounded-xl border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-white/20"
             >
               + إصدار فاتورة
@@ -198,7 +208,7 @@ export default function DashboardHome() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-black text-slate-900">الفواتير الأخيرة</h2>
-            <Link href="/financials" className="text-xs font-bold text-rose-700 hover:text-rose-800">
+            <Link href={makeHref('/financials')} className="text-xs font-bold text-rose-700 hover:text-rose-800">
               عرض المالية ←
             </Link>
           </div>
@@ -211,7 +221,7 @@ export default function DashboardHome() {
               <p className="text-xs font-bold text-slate-700">لا توجد فواتير صادرة حتى الآن</p>
               <p className="mt-1 text-[11px] text-slate-400">يمكنك إصدار الفواتير وتحصيل المبالغ فور إنجاز الخدمات.</p>
               <Link
-                href="/financials"
+                href={makeHref('/financials')}
                 className="mt-3 inline-block rounded-xl bg-rose-50 px-3.5 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-100"
               >
                 + إصدار فاتورة الآن

@@ -26,11 +26,58 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
   const [authLoading, setAuthLoading] = useState(true);
   const pathname = usePathname();
 
+  // تفعيل وسيط Fetch العالمي لضمان إرفاق توكن المصادقة تلقائياً لكافة طلبات الـ API
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // مزامنة التوكن إذا كان موجوداً في معلمات الرابط st
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlToken = searchParams.get('st');
+      if (urlToken) {
+        try {
+          localStorage.setItem('salon_token', urlToken);
+          sessionStorage.setItem('salon_token', urlToken);
+        } catch (_e) {}
+      }
+
+      const originalFetch = window.fetch;
+      window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.startsWith('/api/') || url.includes('/api/')) {
+          let token: string | null = null;
+          try {
+            token = localStorage.getItem('salon_token') || sessionStorage.getItem('salon_token');
+          } catch (_e) {}
+
+          if (token) {
+            init = init || {};
+            const headers = new Headers(init.headers || {});
+            if (!headers.has('Authorization')) {
+              headers.set('Authorization', `Bearer ${token}`);
+            }
+            init.headers = headers;
+          }
+        }
+        return originalFetch(input, init);
+      };
+    }
+  }, []);
+
   useEffect(() => setMenuOpen(false), [pathname]);
 
   const checkAuth = async () => {
     try {
-      const res = await fetch('/api/auth/me');
+      let token: string | null = null;
+      if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search);
+        token = searchParams.get('st') || localStorage.getItem('salon_token') || sessionStorage.getItem('salon_token');
+      }
+
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch('/api/auth/me', { headers });
       if (res.ok) {
         const data = await res.json();
         setProfile(data);
@@ -50,6 +97,10 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
 
   const handleLogout = async () => {
     try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('salon_token');
+        sessionStorage.removeItem('salon_token');
+      }
       await fetch('/api/auth/logout', { method: 'POST' });
       setProfile(null);
       window.location.href = '/login';
@@ -170,10 +221,19 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
           const cleanPath = pathname === '/' ? '/' : (pathname?.replace(/\/$/, '') || '/');
           const cleanHref = item.href === '/' ? '/' : item.href.replace(/\/$/, '');
           const isCurrent = cleanPath === cleanHref;
+          let targetHref = item.href;
+          if (typeof window !== 'undefined') {
+            try {
+              const token = localStorage.getItem('salon_token') || sessionStorage.getItem('salon_token');
+              if (token) {
+                targetHref = item.href + (item.href.includes('?') ? '&' : '?') + 'st=' + encodeURIComponent(token);
+              }
+            } catch (_e) {}
+          }
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={targetHref}
               className={'flex min-h-12 flex-col items-center justify-center rounded-lg text-xs ' +
                 (isCurrent ? 'bg-rose-50 font-black text-rose-800' : 'text-slate-500')}
             >
