@@ -1,4 +1,5 @@
 # My CRM Salon - Hostinger Production Configuration
+DirectoryIndex index.html
 
 # Prevent directory browsing
 Options -Indexes
@@ -10,11 +11,16 @@ Options -Indexes
   # Allow Let's Encrypt SSL validation
   RewriteRule ^\.well-known/ - [L]
 
-  # Redirect seamlessly to live production application
-  RewriteRule ^(.*)$ https://anna-lined-will-belief.trycloudflare.com/$1 [R=302,L]
+  # Direct access to real files and directories
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Route all incoming requests to index.html directly without changing URL
+  RewriteRule ^(.*)$ /index.html [L]
 </IfModule>
 
-# Caching for Next.js static assets
+# Caching for assets
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresByType text/html "access plus 0 seconds"

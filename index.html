@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>My CRM Salon | نظام إدارة مراكز التجميل</title>
+  <meta name="description" content="منظومة SaaS متكاملة لإدارة مراكز التجميل والصالونات النسائية والرجالية" />
+  <meta name="theme-color" content="#881337" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%20width=%2232%22%20height=%2232%22><text y=%2226%22 font-size=%2226%22>✨</text></svg>" />
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    #app-frame {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      z-index: 10;
+      background-color: #f8fafc;
+    }
+    #splash-loader {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #881337 0%, #4c0519 100%);
+      color: #ffffff;
+      transition: opacity 0.4s ease-out, visibility 0.4s;
+    }
+    #splash-loader.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .logo-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 72px;
+      height: 72px;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      font-size: 36px;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+      animation: pulse 2s infinite ease-in-out;
+    }
+    .brand-title {
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+    .brand-subtitle {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 28px;
+    }
+    .spinner {
+      width: 38px;
+      height: 38px;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+  </style>
+</head>
+<body>
+  <div id="splash-loader">
+    <div class="logo-badge">✨</div>
+    <h1 class="brand-title">My CRM Salon</h1>
+    <p class="brand-subtitle">نظام إدارة مراكز التجميل المتكامل</p>
+    <div class="spinner"></div>
+  </div>
+
+  <iframe
+    id="app-frame"
+    title="My CRM Salon"
+    allow="clipboard-write; camera; microphone"
+  ></iframe>
+
+  <script>
+    (function() {
+      const BASE_URL = "https://anna-lined-will-belief.trycloudflare.com";
+      const loader = document.getElementById("splash-loader");
+      const frame = document.getElementById("app-frame");
+
+      // تمرير المسار الحالي إذا كان المستخدم يطلب صفحة معينة مثل /customers أو /login
+      const currentPath = window.location.pathname;
+      const currentSearch = window.location.search;
+      let targetUrl = BASE_URL;
+      if (currentPath && currentPath !== "/" && currentPath !== "/index.html") {
+        targetUrl += currentPath + currentSearch;
+      } else {
+        targetUrl += currentSearch;
+      }
+
+      frame.src = targetUrl;
+
+      // إخفاء شاشة التحميل عند اكتمال تحميل الإطار
+      frame.addEventListener("load", function() {
+        setTimeout(function() {
+          loader.classList.add("hidden");
+        }, 300);
+      });
+
+      // مهلة أمان لإخفاء شاشة التحميل في حال تأخر حدث load
+      setTimeout(function() {
+        loader.classList.add("hidden");
+      }, 3500);
+
+      // الاستماع للرسائل لتحديث شريط العنوان في المتصفح إذا تنقل المستخدم داخل السي آر إم
+      window.addEventListener("message", function(e) {
+        if (e.origin === BASE_URL && e.data && e.data.path) {
+          try {
+            window.history.replaceState(null, "", e.data.path);
+          } catch(err) {}
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
