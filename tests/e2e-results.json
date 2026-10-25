@@ -1,0 +1,81 @@
+{
+  "timestamp": "2026-10-25T16:00:07.156Z",
+  "targetUrl": "http://127.0.0.1:3088",
+  "totalScenarios": 12,
+  "passedCount": 12,
+  "failedCount": 0,
+  "scenarios": [
+    {
+      "id": "SEC-01",
+      "name": "Anonymous users are blocked from all CRM protected routes",
+      "status": "passed",
+      "durationMs": 6387
+    },
+    {
+      "id": "SEC-02",
+      "name": "Successful owner login & dashboard redirect",
+      "status": "passed",
+      "durationMs": 4823
+    },
+    {
+      "id": "SEC-03",
+      "name": "Authenticated owner can access protected CRM sections without redirect",
+      "status": "passed",
+      "durationMs": 4129
+    },
+    {
+      "id": "SEC-04",
+      "name": "Session persists after browser reload",
+      "status": "passed",
+      "durationMs": 3253
+    },
+    {
+      "id": "SEC-05",
+      "name": "Rate limiting MUST block repeated failed attempts with HTTP 429",
+      "status": "passed",
+      "durationMs": 4658
+    },
+    {
+      "id": "SEC-06",
+      "name": "Strict real cross-tenant IDOR isolation and RLS verification",
+      "status": "passed",
+      "durationMs": 1593
+    },
+    {
+      "id": "SEC-07",
+      "name": "Logout revokes session on server and clears browser cookie",
+      "status": "passed",
+      "durationMs": 3347
+    },
+    {
+      "id": "SEC-07B",
+      "name": "Protected pages strictly reject replayed revoked session cookie against Neon",
+      "status": "passed",
+      "durationMs": 3125
+    },
+    {
+      "id": "SEC-08",
+      "name": "Disabled user accounts cannot log in",
+      "status": "passed",
+      "durationMs": 1636
+    },
+    {
+      "id": "SEC-09",
+      "name": "Session is immediately invalidated if role changes in database",
+      "status": "passed",
+      "durationMs": 3027
+    },
+    {
+      "id": "SEC-10",
+      "name": "Mobile viewport rendering (375x667) and RTL layout",
+      "status": "passed",
+      "durationMs": 2845
+    },
+    {
+      "id": "SEC-11",
+      "name": "Health check endpoint returns healthy Neon latency",
+      "status": "passed",
+      "durationMs": 544
+    }
+  ]
+}

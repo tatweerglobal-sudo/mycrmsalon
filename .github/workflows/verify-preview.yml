@@ -1,0 +1,32 @@
+name: Verify My CRM Salon preview
+
+on:
+  push:
+    branches:
+      - feature/beauty-saas-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout My CRM Salon only
+        uses: actions/checkout@v4
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install preview dependencies
+        run: npm install --no-audit --no-fund
+      - name: Type check
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Next.js build
+        run: npm run build
+      - name: Next.js static export build
+        run: npm run build:static
