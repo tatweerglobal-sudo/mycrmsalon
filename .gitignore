@@ -18,3 +18,4 @@ backups/
 *.sql.bak
 .chrome-*/
 test-results/
+cloudflared.exe
