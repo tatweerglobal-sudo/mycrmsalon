@@ -480,14 +480,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    if (result.phone) {
-      phoneInput.value = cleanAndFormatPhoneNumber(result.phone);
+    const clientName = (result.name || result.data?.name || '').trim();
+    const clientPhone = (result.phone || result.data?.phone || '').trim();
+
+    if (clientPhone) {
+      phoneInput.value = cleanAndFormatPhoneNumber(clientPhone);
     }
-    if (result.name) {
-      nameInput.value = result.name;
+    if (clientName) {
+      nameInput.value = clientName;
     }
 
-    showAlert(`✨ تم سحب بيانات العميل/ة بنجاح (${result.name || 'بدون اسم'} - ${result.phone || ''})`, 'success');
+    if (clientPhone || clientName) {
+      showAlert(`✨ تم سحب بيانات العميل/ة بنجاح (${clientName || 'بدون اسم'} - ${phoneInput.value || clientPhone || ''})`, 'success');
+      if (result.warning) {
+        setTimeout(() => {
+          showAlert(`✨ تم سحب الاسم: "${clientName}".<br><span style="font-size:10px; color:#b45309;">💡 لم يتم العثور على رقم في الترويسة لخصوصية جهة الاتصال؛ يرجى كتابته في خانة الهاتف.</span>`, 'warning', true);
+        }, 1200);
+      }
+    } else {
+      showAlert('تم فتح المحادثة ولكن لم يتم التعرف على الاسم أو رقم الهاتف تلقائياً. يرجى إدخال البيانات يدوياً.', 'warning');
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -603,16 +615,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     alertBox.style.display = 'none';
   }
 
+  function convertArabicIndicDigits(input) {
+    const arabicIndic = '٠١٢٣٤٥٦٧٨٩';
+    const easternPersian = '۰۱۲۳۴۵۶۷۸۹';
+    return (input || '')
+      .replace(/[٠-٩]/g, (d) => String(arabicIndic.indexOf(d)))
+      .replace(/[۰-۹]/g, (d) => String(easternPersian.indexOf(d)));
+  }
+
   function cleanAndFormatPhoneNumber(rawPhone) {
     if (!rawPhone || typeof rawPhone !== 'string') return '';
-    let str = rawPhone.replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').trim();
+    let str = convertArabicIndicDigits(rawPhone)
+      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+      .trim();
+
     const hasPlus = str.startsWith('+') || str.startsWith('00');
     const digits = str.replace(/\D/g, '');
 
-    if (hasPlus) return '+' + digits;
-    if (digits.startsWith('966') && digits.length >= 12) return '+' + digits;
-    if (digits.startsWith('20') && digits.length >= 11) return '+' + digits;
-    return digits;
+    if (hasPlus) {
+      if (str.startsWith('00')) return '+' + digits.slice(2);
+      return '+' + digits;
+    }
+
+    // أرقام الجوال السعودية: 05XXXXXXXX أو 5XXXXXXXX
+    if (/^05\d{8}$/.test(digits)) return '+966' + digits.slice(1);
+    if (/^5\d{8}$/.test(digits)) return '+966' + digits;
+    if (/^9665\d{8}$/.test(digits)) return '+' + digits;
+
+    // أرقام الجوال المصرية: 01XXXXXXXXX
+    if (/^01[0125]\d{8}$/.test(digits)) return '+20' + digits.slice(1);
+    if (/^201[0125]\d{8}$/.test(digits)) return '+' + digits;
+
+    // أرقام الإمارات وباقي الخليج
+    if (/^9715\d{8}$/.test(digits)) return '+' + digits;
+    if (/^965\d{8}$/.test(digits)) return '+' + digits;
+
+    if (digits.length >= 8 && digits.length <= 15) {
+      if (/^(966|20|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|1)/.test(digits)) {
+        return '+' + digits;
+      }
+    }
+
+    return '+' + digits;
   }
 
   function escapeHtml(str) {
@@ -624,94 +668,212 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// وظيفة الاستخراج المستقلة للحقن المباشر في واتساب ويب
+// وظيفة الاستخراج المستقلة للحقن المباشر في واتساب ويب (النسخة المطورة متعددة الاستراتيجيات)
 async function extractActiveContactInfoFromDOM() {
+  function convertArabicIndicDigits(input) {
+    const arabicIndic = '٠١٢٣٤٥٦٧٨٩';
+    const easternPersian = '۰۱۲۳۴۵۶۷۸۹';
+    return (input || '')
+      .replace(/[٠-٩]/g, (d) => String(arabicIndic.indexOf(d)))
+      .replace(/[۰-۹]/g, (d) => String(easternPersian.indexOf(d)));
+  }
+
   function isValidRealPhoneNumber(str) {
     if (!str || typeof str !== 'string') return false;
     if (str.includes('@lid') || str.includes('lid')) return false;
 
-    const digits = str.replace(/\D/g, '');
-    // استبعاد معرفات LID الداخلية لواتساب
+    const cleaned = convertArabicIndicDigits(str);
+    const digits = cleaned.replace(/\D/g, '');
+
     if (digits.length >= 14 && /^1[345]/.test(digits)) return false;
-    if (digits.length < 8 || digits.length > 14) return false;
+    if (digits.length < 8 || digits.length > 15) return false;
 
-    // الأرقام المصرية والسعودية والخليجية
+    if (/^0?5\d{8}$/.test(digits)) return true;
     if (/^01[0125]\d{8}$/.test(digits)) return true;
-    if (/^05\d{8}$/.test(digits)) return true;
-    if (/^(20|966|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|1)\d{7,12}$/.test(digits)) return true;
+    if (/^(966|20|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|1)\d{7,12}$/.test(digits)) return true;
 
-    return digits.length >= 8 && digits.length <= 13;
+    return digits.length >= 8 && digits.length <= 14;
   }
 
   function cleanAndFormatPhoneNumber(rawPhone) {
     if (!rawPhone || typeof rawPhone !== 'string') return '';
-    let str = rawPhone.replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').trim();
+    let str = convertArabicIndicDigits(rawPhone)
+      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+      .trim();
+
     const hasPlus = str.startsWith('+') || str.startsWith('00');
     const digits = str.replace(/\D/g, '');
 
-    if (hasPlus) return '+' + digits;
-    if (digits.startsWith('966') && digits.length >= 12) return '+' + digits;
-    if (digits.startsWith('20') && digits.length >= 11) return '+' + digits;
-    return digits;
+    if (hasPlus) {
+      if (str.startsWith('00')) return '+' + digits.slice(2);
+      return '+' + digits;
+    }
+
+    if (/^05\d{8}$/.test(digits)) return '+966' + digits.slice(1);
+    if (/^5\d{8}$/.test(digits)) return '+966' + digits;
+    if (/^9665\d{8}$/.test(digits)) return '+' + digits;
+    if (/^01[0125]\d{8}$/.test(digits)) return '+20' + digits.slice(1);
+    if (/^201[0125]\d{8}$/.test(digits)) return '+' + digits;
+    if (/^9715\d{8}$/.test(digits)) return '+' + digits;
+    if (/^965\d{8}$/.test(digits)) return '+' + digits;
+
+    if (digits.length >= 8 && digits.length <= 15) {
+      if (/^(966|20|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|1)/.test(digits)) {
+        return '+' + digits;
+      }
+    }
+
+    return '+' + digits;
   }
 
   try {
-    const mainContainer = document.querySelector('#main') ||
+    const mainContainer =
+      document.querySelector('#main') ||
       document.querySelector('div[data-testid="conversation-panel-body"]') ||
       document.querySelector('div[role="region"]');
 
     if (!mainContainer) {
       return {
         ok: false,
-        error: 'لم يتم العثور على محادثة مفتوحة حالياً. يرجى النقر على محادثة العميل/ة في واتساب ويب لفتحها أولاً.'
+        error: 'لم يتم العثور على محادثة مفتوحة حالياً. يرجى النقر على محادثة العميل/ة في واتساب ويب لفتحها أولاً.',
       };
     }
 
-    const header = mainContainer.querySelector('header');
-    if (!header) {
+    const mainHeader =
+      mainContainer.querySelector('header') ||
+      document.querySelector('[data-testid="conversation-info-header"]') ||
+      document.querySelector('#main header');
+
+    if (!mainHeader) {
       return {
         ok: false,
-        error: 'تعذر العثور على رأس المحادثة. يرجى فتح محادثة العميل/ة بوضوح.'
+        error: 'تعذر تحديد ترويسة المحادثة في واتساب ويب. تأكد من اكتمال تحميل الصفحة.',
       };
     }
 
-    let rawTitle = '';
-    let phoneFound = '';
-    let nameFound = '';
+    const titleCandidates = [
+      mainHeader.querySelector('[data-testid="conversation-info-header-chat-title"]'),
+      mainHeader.querySelector('div[role="button"] span[title]'),
+      mainHeader.querySelector('span[title]'),
+      mainHeader.querySelector('div[role="button"] span[dir="auto"]'),
+      mainHeader.querySelector('span[dir="auto"]'),
+    ];
 
-    const textNodes = [];
-    const walker = document.createTreeWalker(header, NodeFilter.SHOW_TEXT);
-    let node;
-    while ((node = walker.nextNode())) {
-      const val = node.nodeValue.trim();
-      if (val && !['online', 'typing...', 'متصل الآن', 'يكتب...', 'جاري الكتابة...'].includes(val.toLowerCase())) {
-        textNodes.push(val);
+    let headerTitle = '';
+    for (const el of titleCandidates) {
+      if (el) {
+        const val = (el.getAttribute('title') || el.textContent || '').trim();
+        if (val && val.length > 0 && !val.includes('menu') && !val.includes('search')) {
+          headerTitle = val;
+          break;
+        }
       }
     }
 
-    for (const text of textNodes) {
-      if (isValidRealPhoneNumber(text)) {
-        phoneFound = text;
-        break;
+    let pushName = '';
+    let headerSubtitle = '';
+    const headerSpans = mainHeader.querySelectorAll('span[dir="auto"], span[title], div[dir="auto"]');
+    for (const el of headerSpans) {
+      const txt = (el.getAttribute('title') || el.textContent || '').trim();
+      if (!txt || txt === headerTitle) continue;
+      if (['online', 'typing...', 'متصل الآن', 'يكتب...', 'جاري الكتابة...'].includes(txt.toLowerCase())) continue;
+
+      if (txt.startsWith('~')) {
+        pushName = txt.replace(/^~/, '').trim();
+      } else if (!headerSubtitle && txt.length > 1 && txt.length < 50) {
+        headerSubtitle = txt;
       }
     }
 
-    for (const text of textNodes) {
-      if (text !== phoneFound && text.length >= 2 && text.length <= 50) {
-        nameFound = text;
-        break;
+    let name = '';
+    let phone = '';
+
+    if (isValidRealPhoneNumber(headerTitle)) {
+      phone = headerTitle.trim();
+      name = pushName || (headerSubtitle && !isValidRealPhoneNumber(headerSubtitle) ? headerSubtitle : '');
+    } else {
+      name = headerTitle.trim();
+
+      if (headerSubtitle && isValidRealPhoneNumber(headerSubtitle)) {
+        phone = headerSubtitle.trim();
       }
+
+      // الاستراتيجية 1: البحث في data-id للرسائل
+      if (!phone) {
+        const msgEls = mainContainer.querySelectorAll('div[data-id]');
+        for (const el of msgEls) {
+          const dataId = el.getAttribute('data-id') || '';
+          const match = dataId.match(/(?:true|false)_(\d{8,14})@c\.us/);
+          if (match && isValidRealPhoneNumber(match[1])) {
+            phone = '+' + match[1];
+            break;
+          }
+        }
+      }
+
+      // الاستراتيجية 2: البحث في صورة الحساب الشخصية بالترويسة
+      if (!phone) {
+        const images = mainHeader.querySelectorAll('img');
+        for (const img of images) {
+          const src = img.getAttribute('src') || '';
+          const match =
+            src.match(/[?&]u=(\d{8,14})(?:%40|@)c\.us/) ||
+            src.match(/\b(\d{8,14})%40c\.us/) ||
+            src.match(/\b(\d{8,14})@c\.us/);
+          if (match && isValidRealPhoneNumber(match[1])) {
+            phone = '+' + match[1];
+            break;
+          }
+        }
+      }
+
+      // الاستراتيجية 3: فحص المحادثة النشطة في القائمة الجانبية (#pane-side)
+      if (!phone) {
+        const activeSideChat =
+          document.querySelector('#pane-side div[aria-selected="true"]') ||
+          document.querySelector('#pane-side div[tabindex="0"]');
+        if (activeSideChat) {
+          const sideImgs = activeSideChat.querySelectorAll('img');
+          for (const img of sideImgs) {
+            const src = img.getAttribute('src') || '';
+            const match =
+              src.match(/[?&]u=(\d{8,14})(?:%40|@)c\.us/) ||
+              src.match(/\b(\d{8,14})%40c\.us/);
+            if (match && isValidRealPhoneNumber(match[1])) {
+              phone = '+' + match[1];
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (phone && isValidRealPhoneNumber(phone)) {
+      phone = cleanAndFormatPhoneNumber(phone);
+    } else {
+      phone = '';
+    }
+
+    if (!name && !phone) {
+      return {
+        ok: false,
+        error: 'تعذر قراءة بيانات المحادثة. يرجى التأكد من فتح محادثة العميل/ة في واتساب ويب.',
+      };
     }
 
     return {
       ok: true,
-      name: nameFound || '',
-      phone: phoneFound || '',
+      name: name || '',
+      phone: phone || '',
+      data: {
+        name: name || '',
+        phone: phone || '',
+      },
     };
   } catch (err) {
     return {
       ok: false,
-      error: `حدث خطأ أثناء استخراج البيانات: ${err.message}`
+      error: `حدث خطأ أثناء استخراج البيانات: ${err.message}`,
     };
   }
 }
