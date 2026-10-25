@@ -726,6 +726,111 @@ async function extractActiveContactInfoFromDOM() {
     return '+' + digits;
   }
 
+  function findPhoneInElement(rootEl) {
+    if (!rootEl) return null;
+
+    const intlRegex = /(?:\+|00)\s*(?:966|20|971|965|974|968|973|962|961|963|964|218|216|213|212|249|967|\d{1,3})[\d\s\-()]{7,15}\d/;
+    const saudiRegex = /\b0?5\d[\d\s\-]{7,9}\d\b/;
+    const egyptRegex = /\b01[0125][\d\s\-]{8}\b/;
+
+    const nodes = rootEl.querySelectorAll('span, div, a, p');
+    for (const node of nodes) {
+      const title = (node.getAttribute('title') || '').trim();
+      if (title) {
+        const m = title.match(intlRegex) || title.match(saudiRegex) || title.match(egyptRegex);
+        if (m && isValidRealPhoneNumber(m[0])) {
+          return m[0].trim();
+        }
+      }
+
+      if (node.children.length <= 1) {
+        const txt = (node.textContent || '').trim();
+        if (txt && txt.length >= 8 && txt.length <= 30) {
+          const m = txt.match(intlRegex) || txt.match(saudiRegex) || txt.match(egyptRegex);
+          if (m && isValidRealPhoneNumber(m[0])) {
+            return m[0].trim();
+          }
+        }
+      }
+    }
+
+    const telLink = rootEl.querySelector('a[href^="tel:"]');
+    if (telLink) {
+      const href = telLink.getAttribute('href') || '';
+      const phoneFromHref = href.replace('tel:', '').trim();
+      if (isValidRealPhoneNumber(phoneFromHref)) {
+        return phoneFromHref;
+      }
+    }
+
+    return null;
+  }
+
+  async function readPhoneByOpeningContactDrawer(mainHeader) {
+    try {
+      let drawer =
+        document.querySelector('[data-testid="contact-info-drawer"]') ||
+        document.querySelector('div[data-testid="drawer-middle"]') ||
+        document.querySelector('div[aria-label*="معلومات"]') ||
+        document.querySelector('div[aria-label*="Contact"]') ||
+        document.querySelector('div[role="region"]') ||
+        document.querySelector('section');
+
+      let alreadyOpen = false;
+      if (drawer) {
+        const p = findPhoneInElement(drawer);
+        if (p) return p;
+        alreadyOpen = true;
+      }
+
+      const titleContainer =
+        mainHeader.querySelector('[data-testid="conversation-info-header-chat-title"]')?.closest('div[role="button"]') ||
+        mainHeader.querySelector('span[title]')?.closest('div[role="button"]') ||
+        mainHeader.querySelector('div[role="button"]') ||
+        mainHeader;
+
+      if (!alreadyOpen && titleContainer) {
+        titleContainer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        titleContainer.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+        titleContainer.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        titleContainer.click();
+      }
+
+      let foundPhone = null;
+      for (let attempt = 0; attempt < 14; attempt++) {
+        await new Promise((r) => setTimeout(r, 100));
+
+        drawer =
+          document.querySelector('[data-testid="contact-info-drawer"]') ||
+          document.querySelector('div[data-testid="drawer-middle"]') ||
+          document.querySelector('div[aria-label*="معلومات"]') ||
+          document.querySelector('div[aria-label*="Contact"]') ||
+          document.querySelector('div[role="region"]') ||
+          document.querySelector('section');
+
+        if (drawer) {
+          foundPhone = findPhoneInElement(drawer);
+          if (foundPhone) break;
+        }
+      }
+
+      if (!alreadyOpen && drawer) {
+        const closeBtn =
+          drawer.querySelector('button[aria-label*="Close"], button[aria-label*="إغلاق"], span[data-testid="x"]')?.closest('button') ||
+          drawer.querySelector('button');
+        if (closeBtn) {
+          closeBtn.click();
+        } else {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+        }
+      }
+
+      return foundPhone;
+    } catch (_e) {
+      return null;
+    }
+  }
+
   try {
     const mainContainer =
       document.querySelector('#main') ||
@@ -845,6 +950,11 @@ async function extractActiveContactInfoFromDOM() {
             }
           }
         }
+      }
+
+      // الاستراتيجية 4 (الأقوى والأضمن): فتح وقراءة درج معلومات جهة الاتصال
+      if (!phone) {
+        phone = await readPhoneByOpeningContactDrawer(mainHeader);
       }
     }
 
