@@ -15,7 +15,7 @@
     "db:setup-role": "tsx scripts/setup-runtime-role.ts",
     "db:bootstrap": "tsx scripts/bootstrap-salon.ts",
     "db:seed-qa": "tsx scripts/seed-qa-account.ts",
-    "start": "next start",
+    "start": "node scripts/start-standalone.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "test": "tsx --test tests/*.test.ts",
