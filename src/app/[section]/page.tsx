@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getSalonSection, salonSections } from '@/lib/salon-sections';
+import { requireServerSession } from '@/lib/auth/server-session';
 
 export function generateStaticParams() {
   return salonSections.map((section) => ({
@@ -8,7 +9,8 @@ export function generateStaticParams() {
   }));
 }
 
-export const dynamicParams = false;
+export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
+export const dynamicParams = true;
 
 interface SectionPageProps {
   params: {
@@ -17,8 +19,30 @@ interface SectionPageProps {
 }
 
 export default function SectionPage({ params }: SectionPageProps) {
+  const session = requireServerSession();
   const section = getSalonSection(params.section);
   if (!section) notFound();
+
+  // فحص صلاحيات الوصول حسب الدور (Role-based access control)
+  const isOwnerOrManager = session.role === 'salon_owner' || session.role === 'salon_manager' || session.isSuperAdmin;
+  const isRestrictedAdminSection = ['financials', 'settings', 'staff'].includes(section.slug);
+
+  if (isRestrictedAdminSection && !isOwnerOrManager) {
+    return (
+      <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-950 sm:p-8" role="alert">
+        <h1 className="text-xl font-black text-rose-900">⚠️ صلاحيات غير كافية (403 Forbidden)</h1>
+        <p className="mt-2 text-sm leading-7">
+          عذراً، هذا القسم مخصص لمالكة المركز أو المديرة الإدارية فقط. دورك الحالي ({session.role}) لا يملك صلاحية عرض هذا القسم.
+        </p>
+        <Link
+          href="/"
+          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-rose-800 px-4 py-2 text-xs font-bold text-white transition hover:bg-rose-900"
+        >
+          العودة للوحة التحكم الرئيسية ←
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

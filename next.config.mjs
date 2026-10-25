@@ -2,9 +2,9 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  output: process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'export' : 'standalone',
   ...(process.env.NEXT_OUTPUT_EXPORT === 'true'
     ? {
-        output: 'export',
         images: { unoptimized: true },
         trailingSlash: true,
       }

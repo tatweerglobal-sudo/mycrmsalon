@@ -53,8 +53,7 @@ export default function SalonShell({ children }: { children: React.ReactNode }) 
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
       setProfile(null);
-      router.push('/login');
-      router.refresh();
+      window.location.href = '/login';
     } catch (_err) {
       // ignore
     }

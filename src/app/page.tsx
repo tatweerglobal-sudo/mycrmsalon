@@ -1,7 +1,11 @@
 import Link from 'next/link';
 import { salonSections } from '@/lib/salon-sections';
+import { requireServerSession } from '@/lib/auth/server-session';
+
+export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
 export default function HomePage() {
+  const session = requireServerSession();
   return (
     <div className="space-y-6">
       <section className="rounded-3xl bg-gradient-to-l from-rose-900 via-rose-800 to-pink-700 px-5 py-8 text-white shadow-xl sm:px-8">

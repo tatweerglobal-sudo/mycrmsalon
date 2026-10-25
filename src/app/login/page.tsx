@@ -30,8 +30,7 @@ export default function LoginPage() {
       }
 
       // توجيه المستخدم إلى لوحة التحكم الرئيسية بعد تسجيل الدخول بنجاح
-      router.push('/');
-      router.refresh();
+      window.location.href = '/';
     } catch (err: unknown) {
       setError((err as Error).message || 'حدث خطأ غير متوقع أثناء الاتصال بالخادم.');
     } finally {

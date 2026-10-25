@@ -1,0 +1,75 @@
+{
+  "timestamp": "2026-10-25T14:20:54.630Z",
+  "targetUrl": "http://127.0.0.1:3088",
+  "totalScenarios": 11,
+  "passedCount": 11,
+  "failedCount": 0,
+  "scenarios": [
+    {
+      "id": "SEC-01",
+      "name": "Anonymous users are blocked from all CRM protected routes",
+      "status": "passed",
+      "durationMs": 5800
+    },
+    {
+      "id": "SEC-02",
+      "name": "Successful owner login & dashboard redirect",
+      "status": "passed",
+      "durationMs": 3441
+    },
+    {
+      "id": "SEC-03",
+      "name": "Authenticated owner can access protected CRM sections without redirect",
+      "status": "passed",
+      "durationMs": 3666
+    },
+    {
+      "id": "SEC-04",
+      "name": "Session persists after browser reload",
+      "status": "passed",
+      "durationMs": 3115
+    },
+    {
+      "id": "SEC-05",
+      "name": "Rate limiting MUST block repeated failed attempts with HTTP 429",
+      "status": "passed",
+      "durationMs": 4415
+    },
+    {
+      "id": "SEC-06",
+      "name": "Strict real cross-tenant IDOR isolation and RLS verification",
+      "status": "passed",
+      "durationMs": 1560
+    },
+    {
+      "id": "SEC-07",
+      "name": "Logout revokes session on server and clears browser cookie",
+      "status": "passed",
+      "durationMs": 3093
+    },
+    {
+      "id": "SEC-08",
+      "name": "Disabled user accounts cannot log in",
+      "status": "passed",
+      "durationMs": 1585
+    },
+    {
+      "id": "SEC-09",
+      "name": "Session is immediately invalidated if role changes in database",
+      "status": "passed",
+      "durationMs": 2471
+    },
+    {
+      "id": "SEC-10",
+      "name": "Mobile viewport rendering (375x667) and RTL layout",
+      "status": "passed",
+      "durationMs": 2776
+    },
+    {
+      "id": "SEC-11",
+      "name": "Health check endpoint returns healthy Neon latency",
+      "status": "passed",
+      "durationMs": 502
+    }
+  ]
+}

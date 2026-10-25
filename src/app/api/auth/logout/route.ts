@@ -33,14 +33,22 @@ export async function POST(req: NextRequest) {
           await client.query('COMMIT');
         } catch (revokeErr) {
           await client.query('ROLLBACK');
-          console.error('Server-side session revocation warning:', revokeErr);
+          console.error('Server-side session revocation failed:', revokeErr);
+          // حظر إعطاء تأكيد كاذب بالنجاح إذا فشل الإبطال الفعلي على الخادم
+          return NextResponse.json(
+            { error: 'فشل إبطال الجلسة على الخادم، يرجى إعادة المحاولة.' },
+            { status: 500 }
+          );
         } finally {
           client.release();
         }
       }
     }
   } catch (_e) {
-    // الاستمرار في مسح الكوكي حتى لو حدث خطأ في الشبكة
+    return NextResponse.json(
+      { error: 'حدث خطأ غير متوقع أثناء معالجة تسجيل الخروج.' },
+      { status: 500 }
+    );
   }
 
   const response = NextResponse.json({
