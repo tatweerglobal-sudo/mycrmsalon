@@ -1,26 +1,18 @@
 // src/app/api/appointments/route.ts
 // الواجهة البرمجية لحجز وإدارة المواعيد مع الكشف الذكي عن التعارض الزمني (Conflict Detection)
+// والتحقق الحي من الجلسة في Neon وفرض صلاحيات RBAC
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDbPool } from '@/lib/db';
-import { verifySessionToken } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { validateRequestOrigin } from '@/lib/auth/csrf';
 import { withTenantDb } from '@/lib/auth/tenant-context';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
-function getSessionFromRequest(req: NextRequest) {
-  const cookie = req.cookies.get('salon_session')?.value;
-  if (!cookie) return null;
-  return verifySessionToken(cookie);
-}
-
 // 1. استعراض المواعيد والحجوزات
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req);
+  if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get('status')?.trim();
@@ -28,8 +20,7 @@ export async function GET(req: NextRequest) {
   const customerId = searchParams.get('customerId')?.trim();
 
   try {
-    const pool = getDbPool();
-    const appointments = await withTenantDb(pool, session, async (client) => {
+    const appointments = await withTenantDb(auth.pool, auth.session, async (client) => {
       let query = `
         SELECT a.id, a.starts_at, a.ends_at, a.status, a.total_price,
                a.discount_amount, a.final_price, a.payment_status, a.notes,
@@ -46,11 +37,17 @@ export async function GET(req: NextRequest) {
       const params: unknown[] = [];
       let idx = 1;
 
+      // إذا كانت أخصائية تجميل (beauty_specialist)، ترى مواعيدها فقط (appointments:view_own)
+      if (auth.role === 'beauty_specialist') {
+        query += ` AND s.user_id = $${idx++}`;
+        params.push(auth.userId);
+      }
+
       if (status) {
         query += ` AND a.status = $${idx++}`;
         params.push(status);
       }
-      if (staffId) {
+      if (staffId && auth.role !== 'beauty_specialist') {
         query += ` AND a.staff_id = $${idx++}`;
         params.push(staffId);
       }
@@ -68,21 +65,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, appointments });
   } catch (err: unknown) {
     console.error('Error fetching appointments:', err);
-    return NextResponse.json({ error: 'حدث خطأ أثناء جلب المواعيد' }, { status: 500 });
+    return NextResponse.json({ error: 'حدث خطأ أثناء جلب قائمة المواعيد' }, { status: 500 });
   }
 }
 
-// 2. إنشاء حجز جديد مع منع التعارض التام (No Double-Booking)
+// 2. حجز موعد جديد
 export async function POST(req: NextRequest) {
   const originCheck = validateRequestOrigin(req);
   if (!originCheck.valid) {
     return NextResponse.json({ error: 'طلب غير مصرح به: مخالفة حماية المصدر (CSRF)' }, { status: 403 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'appointments:manage' });
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
@@ -103,8 +98,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'تاريخ الموعد غير صحيح' }, { status: 400 });
     }
 
-    const pool = getDbPool();
-    const appointment = await withTenantDb(pool, session, async (client, ctx) => {
+    const appointment = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
       // 1. جلب تفاصيل وسعر ومدة الخدمة
       const srvRes = await client.query(
         'SELECT id, name, duration_minutes, price FROM services WHERE id = $1 AND is_active = true',
@@ -118,9 +112,12 @@ export async function POST(req: NextRequest) {
       // حساب وقت نهاية الحجز
       const endDate = new Date(startDate.getTime() + service.duration_minutes * 60000);
 
-      // 2. جلب الفرع الرئيسي
-      const branchRes = await client.query('SELECT id FROM branches WHERE is_main = true LIMIT 1');
-      const branchId = branchRes.rows[0]?.id;
+      // 2. جلب الفرع
+      let branchId = ctx.branchId;
+      if (!branchId) {
+        const branchRes = await client.query('SELECT id FROM branches WHERE is_main = true LIMIT 1');
+        branchId = branchRes.rows[0]?.id;
+      }
       if (!branchId) {
         throw new Error('لا يوجد فرع نشط في الصالون');
       }
@@ -141,17 +138,14 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 4. إنشاء الحجز
+      // 4. إدراج الحجز الرئيسي
       const aptRes = await client.query(`
         INSERT INTO appointments (
-          tenant_id, branch_id, customer_id, staff_id, starts_at, ends_at,
-          status, total_price, discount_amount, final_price, payment_status,
-          notes, created_by
+          tenant_id, branch_id, customer_id, staff_id,
+          starts_at, ends_at, status, total_price, final_price, notes
         ) VALUES (
-          $1, $2, $3, $4, $5, $6,
-          'booked', $7, 0.00, $7, 'unpaid',
-          $8, $9
-        ) RETURNING id, starts_at, ends_at, status, final_price, created_at;
+          $1, $2, $3, $4, $5, $6, 'booked', $7, $7, $8
+        ) RETURNING id, starts_at, ends_at, status, total_price, final_price, created_at;
       `, [
         ctx.tenantId,
         branchId,
@@ -160,13 +154,12 @@ export async function POST(req: NextRequest) {
         startDate.toISOString(),
         endDate.toISOString(),
         service.price,
-        notes?.trim() || null,
-        ctx.userId
+        notes?.trim() || null
       ]);
 
-      const createdApt = aptRes.rows[0];
+      const newApt = aptRes.rows[0];
 
-      // 5. ربط تفاصيل الخدمة بالحجز
+      // 5. ربط الخدمة بالحجز
       await client.query(`
         INSERT INTO appointment_services (
           appointment_id, service_id, tenant_id, staff_id, price, duration_minutes
@@ -174,7 +167,7 @@ export async function POST(req: NextRequest) {
           $1, $2, $3, $4, $5, $6
         );
       `, [
-        createdApt.id,
+        newApt.id,
         service.id,
         ctx.tenantId,
         staffId || null,
@@ -182,7 +175,7 @@ export async function POST(req: NextRequest) {
         service.duration_minutes
       ]);
 
-      return createdApt;
+      return newApt;
     });
 
     return NextResponse.json({
@@ -207,10 +200,8 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'طلب غير مصرح به: مخالفة حماية المصدر (CSRF)' }, { status: 403 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'appointments:manage' });
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
@@ -221,8 +212,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'معرف الحجز وحالة صالحة مطلوبان' }, { status: 400 });
     }
 
-    const pool = getDbPool();
-    const updated = await withTenantDb(pool, session, async (client) => {
+    const updated = await withTenantDb(auth.pool, auth.session, async (client) => {
       let query = `
         UPDATE appointments
         SET status = $1, updated_at = NOW()

@@ -1,30 +1,21 @@
 // src/app/api/services/route.ts
 // الواجهة البرمجية لإدارة خدمات وباقات مركز التجميل (Services API)
+// مع التحقق الحي من الجلسة في Neon وفرض صلاحية services:manage
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDbPool } from '@/lib/db';
-import { verifySessionToken } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { validateRequestOrigin } from '@/lib/auth/csrf';
 import { withTenantDb } from '@/lib/auth/tenant-context';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
-function getSessionFromRequest(req: NextRequest) {
-  const cookie = req.cookies.get('salon_session')?.value;
-  if (!cookie) return null;
-  return verifySessionToken(cookie);
-}
-
 // 1. استعراض الخدمات والتصنيفات
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req);
+  if (!auth.ok) return auth.response;
 
   try {
-    const pool = getDbPool();
-    const data = await withTenantDb(pool, session, async (client) => {
+    const data = await withTenantDb(auth.pool, auth.session, async (client) => {
       // جلب التصنيفات
       const categoriesRes = await client.query(`
         SELECT id, name, display_order
@@ -64,10 +55,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'طلب غير مصرح به: مخالفة حماية المصدر (CSRF)' }, { status: 403 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'services:manage' });
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
@@ -87,8 +76,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'سعر الخدمة يجب أن يكون رقماً صحيحاً موجباً' }, { status: 400 });
     }
 
-    const pool = getDbPool();
-    const newService = await withTenantDb(pool, session, async (client, ctx) => {
+    const newService = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
       // فحص عدم تكرار الاسم في نفس الصالون
       const dup = await client.query('SELECT id FROM services WHERE name = $1 LIMIT 1', [name.trim()]);
       if (dup.rows.length > 0) {

@@ -1,30 +1,21 @@
 // src/app/api/branches/route.ts
 // الواجهة البرمجية لإدارة فروع مركز التجميل (Branches API)
+// مع التحقق الحي من الجلسة في Neon وفرض صلاحية branches:manage
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDbPool } from '@/lib/db';
-import { verifySessionToken } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { validateRequestOrigin } from '@/lib/auth/csrf';
 import { withTenantDb } from '@/lib/auth/tenant-context';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
-function getSessionFromRequest(req: NextRequest) {
-  const cookie = req.cookies.get('salon_session')?.value;
-  if (!cookie) return null;
-  return verifySessionToken(cookie);
-}
-
 // 1. استعراض الفروع
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req);
+  if (!auth.ok) return auth.response;
 
   try {
-    const pool = getDbPool();
-    const branches = await withTenantDb(pool, session, async (client) => {
+    const branches = await withTenantDb(auth.pool, auth.session, async (client) => {
       const res = await client.query(`
         SELECT id, name, phone, address, city, is_main, is_active,
                opening_time, closing_time, created_at
@@ -42,17 +33,15 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// 2. إضافة فرع جديد
+// 2. إضافة فرع جديد (يتطلب صلاحية branches:manage)
 export async function POST(req: NextRequest) {
   const originCheck = validateRequestOrigin(req);
   if (!originCheck.valid) {
     return NextResponse.json({ error: 'طلب غير مصرح به: مخالفة حماية المصدر (CSRF)' }, { status: 403 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'branches:manage' });
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
@@ -62,8 +51,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'اسم الفرع مطلوب ويجب ألا يقل عن حرفين' }, { status: 400 });
     }
 
-    const pool = getDbPool();
-    const newBranch = await withTenantDb(pool, session, async (client, ctx) => {
+    const newBranch = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
+      // فحص عدم تجاوز الحد الأقصى للفروع وفق باقة الاشتراك
+      const tenantRes = await client.query(
+        'SELECT max_branches, (SELECT COUNT(*) FROM branches WHERE tenant_id = $1) as current_branches FROM tenants WHERE id = $1',
+        [ctx.tenantId]
+      );
+      if (tenantRes.rows.length > 0) {
+        const { max_branches, current_branches } = tenantRes.rows[0];
+        if (parseInt(current_branches, 10) >= max_branches) {
+          throw new Error(`لقد بلغت الحد الأقصى للفروع المسموح بها في باقتك الحالية (${max_branches} فرع). يرجى ترقية الباقة لإضافة فروع جديدة.`);
+        }
+      }
+
       // فحص عدم تكرار الاسم
       const dup = await client.query('SELECT id FROM branches WHERE name = $1 LIMIT 1', [name.trim()]);
       if (dup.rows.length > 0) {
@@ -99,6 +99,9 @@ export async function POST(req: NextRequest) {
     const message = (err as Error).message;
     if (message.includes('مسجل بهذا الاسم')) {
       return NextResponse.json({ error: message }, { status: 409 });
+    }
+    if (message.includes('الحد الأقصى')) {
+      return NextResponse.json({ error: message }, { status: 403 });
     }
     console.error('Error creating branch:', err);
     return NextResponse.json({ error: message || 'حدث خطأ أثناء حفظ بيانات الفرع' }, { status: 500 });

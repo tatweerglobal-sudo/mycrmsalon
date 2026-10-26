@@ -3,7 +3,7 @@
 // تعمل تحت العزل التام للمستأجر (Tenant-Isolated Metadata)
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { getMigrationDbPool } from '@/lib/db';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
@@ -13,17 +13,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'غير مفعل في نسخة المعاينة الثابتة' }, { status: 400 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
+  const auth = await requireApiAuth(req);
+  if (!auth.ok) {
     return NextResponse.json(
-      { ok: false, error: 'غير مصرح به: رمز الدخول (Bearer Token) مفقود أو غير صالح.' },
+      { ok: false, error: 'غير مصرح به: رمز الدخول (Bearer Token) مفقود أو غير صالح أو منتهي.' },
       { status: 401 }
     );
   }
 
   try {
-    const pool = getMigrationDbPool();
-    const tenantId = session.tenantId;
+    const session = auth.session;
+    const pool = auth.pool;
+    const tenantId = auth.tenantId;
 
     // 1. جلب الخدمات المعتمدة من جدول services
     const servicesRes = await pool.query(

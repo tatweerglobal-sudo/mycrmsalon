@@ -16,7 +16,7 @@ export interface RealPostgresEnv {
 export async function setupTestPostgres(port = 54338): Promise<RealPostgresEnv> {
   (process.env as Record<string, string | undefined>).NODE_ENV = 'test';
 
-  const dataDir = path.join(process.cwd(), '.test-pg-data-salon');
+  const dataDir = path.join(process.cwd(), `.test-pg-data-salon-${port}`);
 
   const epModule = await import('embedded-postgres');
   const EmbeddedPostgres = epModule.default;

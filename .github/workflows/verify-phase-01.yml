@@ -1,12 +1,14 @@
-name: Verify My CRM Salon Phase 1 Core
+name: Verify My CRM Salon SaaS Production CI
 
 on:
   push:
     branches:
-      - feature/salon-phase-01-core
+      - main
+      - feature/beauty-saas-foundation
   pull_request:
     branches:
-      - feature/salon-phase-01-core
+      - main
+      - feature/beauty-saas-foundation
   workflow_dispatch:
 
 permissions:
@@ -35,11 +37,8 @@ jobs:
       - name: ESLint check
         run: npm run lint
 
-      - name: Unit and PostgreSQL Integration Tests
+      - name: Unit and PostgreSQL Multi-Tenant Integration Tests
         run: npm test
 
-      - name: Next.js standard build
+      - name: Next.js Production Build
         run: npm run build
-
-      - name: Next.js static export build
-        run: npm run build:static

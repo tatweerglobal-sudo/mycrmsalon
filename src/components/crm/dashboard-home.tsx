@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 interface DashboardStats {
+  salonName?: string;
   totalCustomers: number;
   todayAppointments: number;
   totalAppointments: number;
@@ -63,6 +64,7 @@ export default function DashboardHome() {
   }, []);
 
   const s = stats || {
+    salonName: 'مركز التجميل',
     totalCustomers: 0,
     todayAppointments: 0,
     totalAppointments: 0,
@@ -81,7 +83,7 @@ export default function DashboardHome() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="mb-2 inline-flex rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-bold">
-              Lotus Beauty Salon • الإنتاج الفعلي
+              ✨ {s.salonName || 'مركز التجميل'} • الإنتاج الفعلي
             </p>
             <h1 className="text-2xl font-black sm:text-3xl">لوحة إدارة المركز اليومية</h1>
             <p className="mt-2 max-w-xl text-xs sm:text-sm leading-6 text-rose-100">

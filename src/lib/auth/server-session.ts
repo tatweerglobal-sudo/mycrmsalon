@@ -41,6 +41,9 @@ export async function requireServerSession(): Promise<SessionPayload> {
     const stateCheck = await validateSessionState(pool, session);
     if (!stateCheck.valid) {
       console.warn(`[ServerSession] Revoked/invalid session rejected for ${session.email}: ${stateCheck.reason}`);
+      if (stateCheck.reason?.includes('موقوف') || stateCheck.reason?.includes('معلق') || stateCheck.reason?.includes('اشتراك')) {
+        redirect('/suspended');
+      }
       redirect('/login');
     }
   } catch (err) {

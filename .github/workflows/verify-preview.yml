@@ -24,9 +24,9 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Type check
         run: npm run typecheck
-      - name: Unit tests
+      - name: ESLint check
+        run: npm run lint
+      - name: Unit and PostgreSQL Integration Tests
         run: npm test
-      - name: Next.js build
+      - name: Next.js Production Build
         run: npm run build
-      - name: Next.js static export build
-        run: npm run build:static

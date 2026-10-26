@@ -1,23 +1,23 @@
 // src/app/api/dashboard/stats/route.ts
 // الواجهة البرمجية للمؤشرات الحية للوحة التحكم (Dashboard KPIs API)
-// يجلب البيانات الفعلية والمحسوبة لحظياً من قاعدة بيانات Neon مع عزل RLS التام
+// يجلب البيانات الفعلية والمحسوبة لحظياً من قاعدة بيانات Neon مع عزل RLS التام والتحقق الحي من الجلسة
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDbPool } from '@/lib/db';
-import { verifySessionToken, getSessionFromRequest } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { withTenantDb } from '@/lib/auth/tenant-context';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req);
+  if (!auth.ok) return auth.response;
 
   try {
-    const pool = getDbPool();
-    const stats = await withTenantDb(pool, session, async (client) => {
+    const stats = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
+      // 0. اسم المركز الحالي تحت سياق المستأجر
+      const tRes = await client.query('SELECT name FROM tenants WHERE id = $1', [ctx.tenantId]);
+      const salonName = tRes.rows[0]?.name || 'مركز التجميل';
+
       // 1. إجمالي العملاء
       const custRes = await client.query('SELECT COUNT(*) as count FROM customers WHERE is_active = true');
       const totalCustomers = parseInt(custRes.rows[0].count, 10);
@@ -73,6 +73,7 @@ export async function GET(req: NextRequest) {
       `);
 
       return {
+        salonName,
         totalCustomers,
         todayAppointments,
         totalAppointments,

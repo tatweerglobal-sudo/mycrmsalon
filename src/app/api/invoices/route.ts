@@ -1,34 +1,25 @@
 // src/app/api/invoices/route.ts
 // الواجهة البرمجية لإدارة الفواتير والتحصيل المالي (Invoices API)
+// مع التحقق الحي من الجلسة في Neon وفرض صلاحيات RBAC
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDbPool } from '@/lib/db';
-import { verifySessionToken } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { validateRequestOrigin } from '@/lib/auth/csrf';
 import { withTenantDb } from '@/lib/auth/tenant-context';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
-function getSessionFromRequest(req: NextRequest) {
-  const cookie = req.cookies.get('salon_session')?.value;
-  if (!cookie) return null;
-  return verifySessionToken(cookie);
-}
-
 // 1. استعراض الفواتير
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'financials:view' });
+  if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get('status')?.trim();
   const customerId = searchParams.get('customerId')?.trim();
 
   try {
-    const pool = getDbPool();
-    const invoices = await withTenantDb(pool, session, async (client) => {
+    const invoices = await withTenantDb(auth.pool, auth.session, async (client) => {
       let query = `
         SELECT i.id, i.invoice_number, i.subtotal, i.discount_amount,
                i.tax_amount, i.total_amount, i.paid_amount, i.status,
@@ -74,10 +65,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'طلب غير مصرح به: مخالفة حماية المصدر (CSRF)' }, { status: 403 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'invoices:manage' });
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
@@ -101,10 +90,9 @@ export async function POST(req: NextRequest) {
     const tax = Math.round(taxableAmount * 0.15 * 100) / 100; // 15% ضريبة القيمة المضافة
     const total = Math.round((taxableAmount + tax) * 100) / 100;
 
-    const pool = getDbPool();
-    const invoice = await withTenantDb(pool, session, async (client, ctx) => {
+    const invoice = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
       // التحقق من الفرع
-      let resolvedBranchId = branchId;
+      let resolvedBranchId = branchId || ctx.branchId;
       if (!resolvedBranchId) {
         const branchRes = await client.query('SELECT id FROM branches WHERE is_main = true LIMIT 1');
         resolvedBranchId = branchRes.rows[0]?.id;
@@ -151,7 +139,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'تم إصدار الفاتورة بنجاح',
+      message: 'تمت إصدار الفاتورة بنجاح',
       invoice,
     }, { status: 201 });
   } catch (err: unknown) {

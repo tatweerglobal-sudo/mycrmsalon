@@ -3,7 +3,7 @@
 // تدعم التحقق الحي، منع التكرار، وتطبيق العزل المتعدد للمراكز (Multi-Tenant Capture)
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { getMigrationDbPool } from '@/lib/db';
 import { normalizePhone } from '@/lib/phone-normalizer';
 
@@ -14,14 +14,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'غير مفعل في نسخة المعاينة الثابتة' }, { status: 400 });
   }
 
-  // 1. التحقق من التوكن وهوية المركز
-  const session = getSessionFromRequest(req);
-  if (!session) {
+  // 1. التحقق الحي من التوكن وهوية المركز وصلاحية تسجيل العملاء
+  const auth = await requireApiAuth(req, { permission: 'customers:manage' });
+  if (!auth.ok) {
     return NextResponse.json(
-      { ok: false, error: 'غير مصرح به: رمز التوكن غير صالح أو منتهي الصلاحية.' },
+      { ok: false, error: 'غير مصرح به: رمز التوكن غير صالح أو منتهي الصلاحية أو تم إيقاف الاشتراك.' },
       { status: 401 }
     );
   }
+
+  const session = auth.session;
 
   try {
     const body = await req.json();

@@ -1,10 +1,9 @@
 // src/app/api/customers/route.ts
 // الواجهة البرمجية لإدارة العملاء في مركز التجميل (Customers CRM API)
-// تنفيذ العمليات الفعلية مع قاعدة بيانات Neon وفرض عزل المستأجرين (RLS) وتطبيع أرقام الهواتف
+// تنفيذ العمليات الفعلية مع قاعدة بيانات Neon وفرض عزل المستأجرين (RLS) والتحقق الحي من الجلسة والصلاحيات
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDbPool } from '@/lib/db';
-import { verifySessionToken, getSessionFromRequest } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { validateRequestOrigin } from '@/lib/auth/csrf';
 import { withTenantDb } from '@/lib/auth/tenant-context';
 import { normalizePhone } from '@/lib/phone-normalizer';
@@ -13,17 +12,14 @@ export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'for
 
 // 1. استعراض والبحث في قائمة العملاء
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'customers:view' });
+  if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(req.url);
   const search = searchParams.get('q')?.trim() || '';
 
   try {
-    const pool = getDbPool();
-    const customers = await withTenantDb(pool, session, async (client, ctx) => {
+    const customers = await withTenantDb(auth.pool, auth.session, async (client) => {
       let query = `
         SELECT id, full_name, phone_raw, phone_normalized, email, notes, preferences,
                loyalty_points, total_visits, total_spent, last_visit_at, is_active, created_at
@@ -57,10 +53,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'طلب غير مصرح به: مخالفة حماية المصدر (CSRF)' }, { status: 403 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'customers:manage' });
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
@@ -80,8 +74,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: normalized.error || 'رقم الهاتف غير صالح، يرجى إدخال رقم صحيح (مثال: 0501234567)' }, { status: 400 });
     }
 
-    const pool = getDbPool();
-    const newCustomer = await withTenantDb(pool, session, async (client, ctx) => {
+    const newCustomer = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
       // التحقق من عدم تكرار الهاتف داخل نفس الصالون
       const checkDup = await client.query(
         'SELECT id, full_name FROM customers WHERE phone_normalized = $1 LIMIT 1',

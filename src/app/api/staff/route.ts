@@ -1,30 +1,21 @@
 // src/app/api/staff/route.ts
 // الواجهة البرمجية لإدارة خبيرات وأخصائيات التجميل (Salon Staff API)
+// مع التحقق الحي من الجلسة في Neon وفرض صلاحية staff:manage وفحص حدود الباقة
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDbPool } from '@/lib/db';
-import { verifySessionToken } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { validateRequestOrigin } from '@/lib/auth/csrf';
 import { withTenantDb } from '@/lib/auth/tenant-context';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
-function getSessionFromRequest(req: NextRequest) {
-  const cookie = req.cookies.get('salon_session')?.value;
-  if (!cookie) return null;
-  return verifySessionToken(cookie);
-}
-
 // 1. استعراض قائمة الموظفات
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req);
+  if (!auth.ok) return auth.response;
 
   try {
-    const pool = getDbPool();
-    const staff = await withTenantDb(pool, session, async (client) => {
+    const staff = await withTenantDb(auth.pool, auth.session, async (client) => {
       const res = await client.query(`
         SELECT s.id, s.display_name, s.title, s.commission_rate, s.is_active,
                s.branch_id, b.name as branch_name, s.created_at
@@ -50,10 +41,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'طلب غير مصرح به: مخالفة حماية المصدر (CSRF)' }, { status: 403 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'staff:manage' });
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
@@ -68,10 +57,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'نسبة العمولة يجب أن تكون بين 0% و 100%' }, { status: 400 });
     }
 
-    const pool = getDbPool();
-    const newStaff = await withTenantDb(pool, session, async (client, ctx) => {
+    const newStaff = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
+      // فحص عدم تجاوز الحد الأقصى للموظفات وفق باقة الاشتراك
+      const tenantRes = await client.query(
+        'SELECT max_staff, (SELECT COUNT(*) FROM salon_staff WHERE tenant_id = $1 AND is_active = true) as current_staff FROM tenants WHERE id = $1',
+        [ctx.tenantId]
+      );
+      if (tenantRes.rows.length > 0) {
+        const { max_staff, current_staff } = tenantRes.rows[0];
+        if (parseInt(current_staff, 10) >= max_staff) {
+          throw new Error(`لقد بلغت الحد الأقصى لعدد الموظفات في باقتك الحالية (${max_staff} موظفة). يرجى ترقية الباقة لإضافة المزيد.`);
+        }
+      }
+
       // تحديد الفرع: إما الممرر أو الفرع الرئيسي تلقائياً
-      let resolvedBranchId = branchId;
+      let resolvedBranchId = branchId || ctx.branchId;
       if (!resolvedBranchId) {
         const mainBranch = await client.query('SELECT id FROM branches WHERE is_main = true LIMIT 1');
         resolvedBranchId = mainBranch.rows[0]?.id;
@@ -108,7 +108,11 @@ export async function POST(req: NextRequest) {
       staff: newStaff,
     }, { status: 201 });
   } catch (err: unknown) {
+    const message = (err as Error).message;
+    if (message.includes('الحد الأقصى')) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error('Error creating staff:', err);
-    return NextResponse.json({ error: (err as Error).message || 'حدث خطأ أثناء حفظ بيانات الموظفة' }, { status: 500 });
+    return NextResponse.json({ error: message || 'حدث خطأ أثناء حفظ بيانات الموظفة' }, { status: 500 });
   }
 }

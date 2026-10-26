@@ -20,8 +20,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 2. تجاوز نقاط النهاية العامة للـ API
-  if (PUBLIC_API_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
+  // 2. تجاوز نقاط النهاية العامة للـ API والصفحات العامة المفتوحة
+  if (
+    pathname === '/suspended' ||
+    pathname === '/invite' ||
+    pathname.startsWith('/invite') ||
+    pathname.startsWith('/api/auth/setup-password') ||
+    PUBLIC_API_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))
+  ) {
     return NextResponse.next();
   }
 
@@ -65,6 +71,19 @@ export async function middleware(request: NextRequest) {
       response.cookies.delete('salon_session');
     }
     return response;
+  }
+
+  // 5.5 حماية مسارات مدير المنصة الأعلى (/admin و /api/admin) ومنع غير مديري المنصة إطلاقاً
+  if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
+    if (!session.isSuperAdmin) {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'غير مصرح به: هذه الواجهة مخصصة لمدير المنصة (Super Admin) فقط.' },
+          { status: 403 }
+        );
+      }
+      return NextResponse.redirect(new URL('/', request.url));
+    }
   }
 
   // 6. جلسة صالحة ومؤكدة -> تمرير التوكن في ترويسات الطلب للمكونات الخادمة والـ APIs

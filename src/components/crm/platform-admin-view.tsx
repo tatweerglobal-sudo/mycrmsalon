@@ -9,7 +9,7 @@ interface TenantItem {
   slug: string;
   country_code: string;
   currency: string;
-  status: 'active' | 'trial' | 'suspended' | 'cancelled';
+  status: 'active' | 'trial' | 'suspended' | 'cancelled' | 'pending_activation';
   subscription_tier: string;
   subscription_expires_at: string | null;
   max_branches: number;
@@ -21,6 +21,7 @@ interface TenantItem {
   staff_count: string | number;
   owner_name: string | null;
   owner_email: string | null;
+  invite_url?: string | null;
 }
 
 interface PlatformKpis {
@@ -28,6 +29,7 @@ interface PlatformKpis {
   activeTenants: number;
   trialTenants: number;
   suspendedTenants: number;
+  pendingActivationTenants?: number;
 }
 
 export default function PlatformAdminView() {
@@ -37,10 +39,12 @@ export default function PlatformAdminView() {
     activeTenants: 0,
     trialTenants: 0,
     suspendedTenants: 0,
+    pendingActivationTenants: 0,
   });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [reissuingId, setReissuingId] = useState<string | null>(null);
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -51,6 +55,7 @@ export default function PlatformAdminView() {
     ownerEmail: string;
     tempPassword?: string;
     phone?: string;
+    inviteUrl?: string;
   } | null>(null);
 
   // Form Fields
@@ -138,11 +143,14 @@ export default function PlatformAdminView() {
         throw new Error(data.error || 'فشل تسجيل المركز الجديد');
       }
 
+      const inviteUrl = data.tenant?.invitation?.inviteUrl;
+
       setSuccessCard({
         tenantName: name,
         ownerEmail: ownerEmail,
         tempPassword: ownerPassword,
         phone: ownerPhone,
+        inviteUrl,
       });
 
       // إعادة تعيين الحقول
@@ -161,12 +169,37 @@ export default function PlatformAdminView() {
     }
   };
 
+  const handleReissueInvite = async (tenantId: string) => {
+    setReissuingId(tenantId);
+    try {
+      const res = await fetch(`/api/admin/tenants/${tenantId}/invite`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'فشل إصدار رابط الدعوة');
+        return;
+      }
+
+      if (data.invite?.inviteUrl) {
+        navigator.clipboard.writeText(data.invite.inviteUrl);
+        alert(`تم إصدار رابط دعوة جديد بنجاح ونسخه إلى الحافظة!\n\n${data.invite.inviteUrl}`);
+      }
+      loadTenants();
+    } catch (err) {
+      console.error('Reissue invite error:', err);
+      alert('تعذر الاتصال بالخادم لإصدار الدعوة');
+    } finally {
+      setReissuingId(null);
+    }
+  };
+
   const handleToggleStatus = async (tenantId: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'active' ? 'suspended' : 'active';
     const confirmMsg =
       nextStatus === 'suspended'
-        ? 'هل أنت متأكد من تجميد اشتراك هذا المركز؟ لن يتمكن منسوبوه من الدخول.'
-        : 'هل تريد إعادة تفعيل اشتراك هذا المركز؟';
+        ? 'هل أنت متأكد من تجميد اشتراك هذا المركز؟ سيتم فوراً إبطال كافة جلسات المستخدمين التابعين له ومنع وصولهم.'
+        : 'هل تريد إعادة تفعيل اشتراك هذا المركز؟ سيتم استرجاع كافة البيانات والصلاحيات فوراً.';
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -217,8 +250,12 @@ export default function PlatformAdminView() {
         return <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">🟢 نشط ومفعّل</span>;
       case 'trial':
         return <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">⏳ فترة تجريبية</span>;
+      case 'pending_activation':
+        return <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-xs font-bold text-cyan-800">✉️ بانتظار تفعيل المالك</span>;
       case 'suspended':
         return <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800">🔴 موقوف مؤقتاً</span>;
+      case 'cancelled':
+        return <span className="rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">⚫ ملغي</span>;
       default:
         return <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{st}</span>;
     }
@@ -264,7 +301,7 @@ export default function PlatformAdminView() {
                   تم تسجيل &quot;{successCard.tenantName}&quot; وتجهيز الحساب بنجاح!
                 </h3>
                 <p className="mt-1 text-xs text-emerald-700">
-                  بيانات الدخول جاهزة الآن ويمكنك إرسالها للعميلة/الصالون فوراً:
+                  بيانات الدخول جاهزة الآن ويمكنك إرسال رابط التفعيل أو بيانات الدخول للمالك فوراً:
                 </p>
               </div>
             </div>
@@ -290,20 +327,40 @@ export default function PlatformAdminView() {
               <span className="text-slate-500 block">كلمة المرور الابتدائية:</span>
               <span className="font-mono font-bold text-emerald-700">{successCard.tempPassword}</span>
             </div>
+            {successCard.inviteUrl && (
+              <div className="col-span-full mt-2 rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 p-3">
+                <span className="text-slate-500 block mb-1">رابط دعوة المالك المباشر (إعداد كلمة المرور):</span>
+                <span className="font-mono text-xs text-rose-800 break-all select-all font-bold">
+                  {successCard.inviteUrl}
+                </span>
+              </div>
+            )}
           </div>
 
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => {
-                const text = `مرحباً بك في منصة My CRM Salon!\nتم تفعيل اشتراك مركز "${successCard.tenantName}".\n\nرابط الدخول: https://crmsalon.de\nالبريد: ${successCard.ownerEmail}\nكلمة المرور: ${successCard.tempPassword}`;
+                const text = `مرحباً بك في منصة My CRM Salon!\nتم تفعيل اشتراك مركز "${successCard.tenantName}".\n\nرابط الدخول: https://crmsalon.de\nالبريد: ${successCard.ownerEmail}\nكلمة المرور: ${successCard.tempPassword}${successCard.inviteUrl ? `\n\nأو يمكنك استخدام رابط التفعيل المباشر:\n${successCard.inviteUrl}` : ''}`;
                 navigator.clipboard.writeText(text);
-                alert('تم نسخ رسالة الترحيب وبيانات الدخول إلى الحافظة!');
+                alert('تم نسخ رسالة الترحيب وبيانات الدخول ورابط التفعيل إلى الحافظة!');
               }}
               className="rounded-xl bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-emerald-800"
             >
-              📋 نسخ بيانات الاشتراك للعميل
+              📋 نسخ بيانات الاشتراك ورابط التفعيل
             </button>
+            {successCard.inviteUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(successCard.inviteUrl!);
+                  alert('تم نسخ رابط التفعيل المباشر إلى الحافظة!');
+                }}
+                className="rounded-xl border border-emerald-300 bg-white px-4 py-2 text-xs font-bold text-emerald-800 shadow-xs hover:bg-emerald-50"
+              >
+                🔗 نسخ رابط التفعيل فقط
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -369,6 +426,7 @@ export default function PlatformAdminView() {
           >
             <option value="all">كافة الحالات</option>
             <option value="active">نشط فقط</option>
+            <option value="pending_activation">بانتظار تفعيل المالك</option>
             <option value="trial">تجريبي فقط</option>
             <option value="suspended">موقوف فقط</option>
           </select>
@@ -437,17 +495,41 @@ export default function PlatformAdminView() {
                     </td>
 
                     <td className="px-5 py-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleStatus(t.id, t.status)}
-                        className={`rounded-xl px-3 py-1.5 text-[11px] font-bold transition shadow-xs ${
-                          t.status === 'active'
-                            ? 'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                            : 'border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                        }`}
-                      >
-                        {t.status === 'active' ? 'تجميد الاشتراك' : 'تفعيل المركز'}
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                        {t.invite_url && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(t.invite_url!);
+                              alert('تم نسخ رابط الدعوة إلى الحافظة!');
+                            }}
+                            className="rounded-xl border border-cyan-200 bg-cyan-50 px-2 py-1 text-[11px] font-bold text-cyan-800 hover:bg-cyan-100 shadow-xs"
+                            title="نسخ رابط الدعوة"
+                          >
+                            🔗 نسخ الدعوة
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleReissueInvite(t.id)}
+                          disabled={reissuingId === t.id}
+                          className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-100 shadow-xs"
+                          title="إعادة إصدار رابط دعوة جديد"
+                        >
+                          {reissuingId === t.id ? '...' : '🔄 إصدار دعوة'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(t.id, t.status)}
+                          className={`rounded-xl px-2.5 py-1 text-[11px] font-bold transition shadow-xs ${
+                            t.status === 'active'
+                              ? 'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                              : 'border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {t.status === 'active' ? 'تجميد الاشتراك' : 'تفعيل المركز'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

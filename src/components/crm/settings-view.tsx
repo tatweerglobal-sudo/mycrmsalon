@@ -16,6 +16,7 @@ interface Branch {
 export default function SettingsView() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [salonInfo, setSalonInfo] = useState<{ name: string; slug: string } | null>(null);
 
   // New Branch Modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -47,6 +48,14 @@ export default function SettingsView() {
 
   useEffect(() => {
     loadBranches();
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.activeTenant) {
+          setSalonInfo({ name: data.activeTenant.name, slug: data.activeTenant.slug });
+        }
+      })
+      .catch((err) => console.error(err));
   }, []);
 
   const handleCreateBranch = async (e: React.FormEvent) => {
@@ -103,7 +112,9 @@ export default function SettingsView() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 text-xs">
           <div>
             <span className="text-slate-400 block mb-1">اسم المركز:</span>
-            <span className="font-bold text-slate-800 text-sm">Lotus Beauty Salon (لوتس بيوتي)</span>
+            <span className="font-bold text-slate-800 text-sm">
+              {salonInfo?.name ? `${salonInfo.name} (${salonInfo.slug})` : 'جاري التحميل...'}
+            </span>
           </div>
           <div>
             <span className="text-slate-400 block mb-1">النطاق الرسمي:</span>

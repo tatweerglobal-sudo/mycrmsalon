@@ -1,4 +1,4 @@
-// content.js - Somoud CRM Content Script
+// content.js - My CRM Salon WhatsApp Web Content Script
 // خصوصية وأمان: يلتقط فقط الاسم ورقم الهاتف الظاهرين في رأس المحادثة النشطة بعد إجراء المستخدم
 // يُحظر تماماً قراءة أو تتبع نصوص أو محتوى المحادثات
 

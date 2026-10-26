@@ -1,34 +1,25 @@
 // src/app/api/inventory/route.ts
 // الواجهة البرمجية لإدارة المنتجات والمخزون وحركة التوريد (Inventory API)
+// مع التحقق الحي من الجلسة في Neon وفرض صلاحيات RBAC
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDbPool } from '@/lib/db';
-import { verifySessionToken } from '@/lib/auth/session';
+import { requireApiAuth } from '@/lib/auth/api-guard';
 import { validateRequestOrigin } from '@/lib/auth/csrf';
 import { withTenantDb } from '@/lib/auth/tenant-context';
 
 export const dynamic = process.env.NEXT_OUTPUT_EXPORT === 'true' ? 'auto' : 'force-dynamic';
 
-function getSessionFromRequest(req: NextRequest) {
-  const cookie = req.cookies.get('salon_session')?.value;
-  if (!cookie) return null;
-  return verifySessionToken(cookie);
-}
-
 // 1. استعراض المنتجات والمخزون
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req);
+  if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(req.url);
   const search = searchParams.get('q')?.trim();
   const lowStockOnly = searchParams.get('lowStock') === 'true';
 
   try {
-    const pool = getDbPool();
-    const data = await withTenantDb(pool, session, async (client) => {
+    const data = await withTenantDb(auth.pool, auth.session, async (client) => {
       let query = `
         SELECT p.id, p.name, p.sku, p.category, p.unit_price, p.cost_price,
                p.quantity, p.min_quantity, p.is_active, p.created_at,
@@ -84,16 +75,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'طلب غير مصرح به: مخالفة حماية المصدر (CSRF)' }, { status: 403 });
   }
 
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return NextResponse.json({ error: 'غير مصرح به: يرجى تسجيل الدخول' }, { status: 401 });
-  }
+  const auth = await requireApiAuth(req, { permission: 'services:manage' });
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
     const { action } = body; // 'create_product' or 'adjust_stock'
-
-    const pool = getDbPool();
 
     if (action === 'adjust_stock') {
       const { productId, type, delta, notes } = body;
@@ -107,7 +94,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'الكمية يجب أن تكون رقماً لا يساوي صفراً' }, { status: 400 });
       }
 
-      const res = await withTenantDb(pool, session, async (client, ctx) => {
+      const res = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
         // فحص المنتج
         const pRes = await client.query('SELECT id, quantity, cost_price FROM products WHERE id = $1', [productId]);
         if (pRes.rows.length === 0) {
@@ -140,33 +127,37 @@ export async function POST(req: NextRequest) {
           ctx.userId
         ]);
 
-        return { newQuantity: newQty, transaction: transRes.rows[0] };
+        return transRes.rows[0];
       });
 
       return NextResponse.json({
         success: true,
-        message: 'تم تعديل كمية المخزون وتسجيل الحركة بنجاح',
-        ...res,
+        message: 'تم تسجيل حركة المخزون بنجاح',
+        transaction: res,
       });
     }
 
-    // Default: create product
+    // إضافة منتج جديد
     const { name, sku, category, unitPrice, costPrice, quantity, minQuantity, branchId } = body;
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
-      return NextResponse.json({ error: 'اسم المنتج مطلوب ولا يقل عن حرفين' }, { status: 400 });
+      return NextResponse.json({ error: 'اسم المنتج مطلوب ويجب ألا يقل عن حرفين' }, { status: 400 });
     }
 
-    const price = Number(unitPrice || 0);
-    const cost = Number(costPrice || 0);
-    const qty = Number(quantity || 0);
-    const minQty = Number(minQuantity || 3);
+    const price = Number(unitPrice);
+    if (isNaN(price) || price < 0) {
+      return NextResponse.json({ error: 'سعر البيع غير صحيح' }, { status: 400 });
+    }
 
-    const newProduct = await withTenantDb(pool, session, async (client, ctx) => {
-      let resolvedBranchId = branchId;
+    const cost = Number(costPrice ?? 0);
+    const initialQty = Number(quantity ?? 0);
+    const minQty = Number(minQuantity ?? 5);
+
+    const newProduct = await withTenantDb(auth.pool, auth.session, async (client, ctx) => {
+      let resolvedBranchId = branchId || ctx.branchId;
       if (!resolvedBranchId) {
-        const branchRes = await client.query('SELECT id FROM branches WHERE is_main = true LIMIT 1');
-        resolvedBranchId = branchRes.rows[0]?.id;
+        const bRes = await client.query('SELECT id FROM branches WHERE is_main = true LIMIT 1');
+        resolvedBranchId = bRes.rows[0]?.id;
         if (!resolvedBranchId) {
           const anyB = await client.query('SELECT id FROM branches LIMIT 1');
           resolvedBranchId = anyB.rows[0]?.id;
@@ -174,41 +165,31 @@ export async function POST(req: NextRequest) {
       }
 
       if (!resolvedBranchId) {
-        throw new Error('لا يوجد فرع لإضافة المنتج إليه');
+        throw new Error('لا يوجد فرع محدد للمنتج');
       }
+
+      const generatedSku = sku?.trim() || `SKU-${Date.now().toString(36).toUpperCase()}`;
 
       const res = await client.query(`
         INSERT INTO products (
-          tenant_id, branch_id, name, sku, category, unit_price, cost_price, quantity, min_quantity, is_active
+          tenant_id, branch_id, name, sku, category, unit_price, cost_price,
+          quantity, min_quantity, is_active
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, true
-        ) RETURNING id, name, sku, category, unit_price, cost_price, quantity, min_quantity, created_at;
+        ) RETURNING id, name, sku, unit_price, quantity, min_quantity, created_at;
       `, [
         ctx.tenantId,
         resolvedBranchId,
         name.trim(),
-        sku?.trim() || null,
-        category?.trim() || 'العناية بالشعر',
+        generatedSku,
+        category?.trim() || 'عام',
         price,
         cost,
-        qty,
+        initialQty,
         minQty
       ]);
 
-      const prod = res.rows[0];
-
-      // إذا كانت الكمية الابتدائية أكبر من 0، نسجل حركة توريد أولية
-      if (qty > 0) {
-        await client.query(`
-          INSERT INTO inventory_transactions (
-            tenant_id, product_id, transaction_type, quantity_delta, unit_cost, notes, created_by
-          ) VALUES (
-            $1, $2, 'in', $3, $4, 'رصيد افتتاحي للمنتج', $5
-          );
-        `, [ctx.tenantId, prod.id, qty, cost, ctx.userId]);
-      }
-
-      return prod;
+      return res.rows[0];
     });
 
     return NextResponse.json({
@@ -217,7 +198,7 @@ export async function POST(req: NextRequest) {
       product: newProduct,
     }, { status: 201 });
   } catch (err: unknown) {
-    console.error('Error in inventory API:', err);
-    return NextResponse.json({ error: (err as Error).message || 'حدث خطأ أثناء معالجة المخزون' }, { status: 500 });
+    console.error('Error in inventory POST:', err);
+    return NextResponse.json({ error: (err as Error).message || 'حدث خطأ أثناء حفظ بيانات المخزون' }, { status: 500 });
   }
 }
