@@ -144,6 +144,25 @@ export async function validateSessionState(
       return { valid: false, reason: 'الحساب مغلق مؤقتاً بسبب محاولات متكررة' };
     }
 
+    if (!session.isSuperAdmin) {
+      // 2. فحص حالة مركز التجميل (Tenant) أولوية أولى لعكس حالة الاشتراك فوراً
+      const tenantRes = await client.query(
+        `SELECT status FROM tenants WHERE id = $1`,
+        [session.tenantId]
+      );
+
+      if (tenantRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { valid: false, reason: 'مركز التجميل غير موجود' };
+      }
+
+      const tenant = tenantRes.rows[0];
+      if (tenant.status === 'suspended' || tenant.status === 'cancelled') {
+        await client.query('ROLLBACK');
+        return { valid: false, reason: 'اشتراك مركز التجميل موقوف أو معلق' };
+      }
+    }
+
     if (session.tokenVersion !== undefined && user.token_version !== session.tokenVersion) {
       await client.query('ROLLBACK');
       return { valid: false, reason: 'تم إبطال هذه الجلسة، يرجى تسجيل الدخول مجدداً' };
@@ -152,23 +171,6 @@ export async function validateSessionState(
     if (session.isSuperAdmin) {
       await client.query('COMMIT');
       return { valid: true };
-    }
-
-    // 2. فحص حالة مركز التجميل (Tenant)
-    const tenantRes = await client.query(
-      `SELECT status FROM tenants WHERE id = $1`,
-      [session.tenantId]
-    );
-
-    if (tenantRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return { valid: false, reason: 'مركز التجميل غير موجود' };
-    }
-
-    const tenant = tenantRes.rows[0];
-    if (tenant.status === 'suspended' || tenant.status === 'cancelled') {
-      await client.query('ROLLBACK');
-      return { valid: false, reason: 'اشتراك مركز التجميل موقوف أو معلق' };
     }
 
     // 3. ضبط سياق المستأجر قبل استعلام جدول memberships الخاضع لـ RLS
