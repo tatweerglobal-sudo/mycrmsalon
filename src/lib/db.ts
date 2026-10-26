@@ -17,7 +17,7 @@ export function getDbPool(): Pool {
   const isTest = process.env.NODE_ENV === 'test';
   const connectionString = isTest
     ? process.env.SALON_TEST_DATABASE_URL
-    : process.env.SALON_DATABASE_URL;
+    : (process.env.SALON_DATABASE_URL || process.env.SALON_MIGRATION_DATABASE_URL || process.env.DATABASE_URL);
 
   if (!connectionString) {
     throw new Error(isTest
@@ -49,7 +49,7 @@ export function getMigrationDbPool(): Pool {
   const isTest = process.env.NODE_ENV === 'test';
   const connectionString = isTest
     ? process.env.SALON_TEST_DATABASE_URL
-    : process.env.SALON_MIGRATION_DATABASE_URL;
+    : (process.env.SALON_MIGRATION_DATABASE_URL || process.env.SALON_DATABASE_URL || process.env.DATABASE_URL);
 
   if (!connectionString) {
     throw new Error(isTest

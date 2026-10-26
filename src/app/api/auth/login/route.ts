@@ -166,7 +166,10 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json(
-      { error: 'حدث خطأ غير متوقع أثناء معالجة تسجيل الدخول.' },
+      {
+        error: 'حدث خطأ غير متوقع أثناء معالجة تسجيل الدخول.',
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }
