@@ -34,12 +34,18 @@ def get_credentials():
     sys.exit(1)
 
 def main():
-    backup_file = os.environ.get("BACKUP_FILE")
     folder_id = os.environ.get("GDRIVE_FOLDER_ID")
     retention_days = int(os.environ.get("RETENTION_DAYS", "30"))
 
-    if not backup_file or not os.path.exists(backup_file):
-        print(f"Error: Backup file not found: {backup_file}")
+    # Support files from CLI args or BACKUP_FILE env
+    files_to_upload = sys.argv[1:]
+    if not files_to_upload:
+        backup_file = os.environ.get("BACKUP_FILE")
+        if backup_file:
+            files_to_upload = [backup_file]
+
+    if not files_to_upload:
+        print("Error: No files specified to upload.")
         sys.exit(1)
 
     if not folder_id:
@@ -56,23 +62,29 @@ def main():
     creds = get_credentials()
     drive_service = build("drive", "v3", credentials=creds)
 
-    filename = os.path.basename(backup_file)
-    filesize = os.path.getsize(backup_file)
-    print(f"Uploading {filename} ({filesize / (1024 * 1024):.2f} MB) to Google Drive folder: {folder_id}...")
+    for file_path in files_to_upload:
+        if not os.path.exists(file_path):
+            print(f"Warning: File not found, skipping: {file_path}")
+            continue
 
-    file_metadata = {
-        "name": filename,
-        "parents": [folder_id]
-    }
+        filename = os.path.basename(file_path)
+        filesize = os.path.getsize(file_path)
+        mime = "application/zip" if filename.endswith(".zip") else "application/gzip"
 
-    media = MediaFileUpload(backup_file, mimetype="application/gzip", resumable=True)
-    uploaded = drive_service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id, name, size"
-    ).execute()
+        print(f"Uploading {filename} ({filesize / (1024 * 1024):.2f} MB) to Google Drive folder: {folder_id}...")
+        file_metadata = {
+            "name": filename,
+            "parents": [folder_id]
+        }
 
-    print(f"Successfully uploaded to Google Drive! File ID: {uploaded.get('id')}")
+        media = MediaFileUpload(file_path, mimetype=mime, resumable=True)
+        uploaded = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id, name, size"
+        ).execute()
+
+        print(f"Successfully uploaded: {uploaded.get('name')} (ID: {uploaded.get('id')})")
 
     # Retention Policy: Clean up backups older than retention_days
     if retention_days > 0:
@@ -80,7 +92,7 @@ def main():
         cutoff_iso = cutoff.isoformat()
         print(f"Checking for backups older than {retention_days} days (before {cutoff_iso})...")
 
-        query = f"'{folder_id}' in parents and trashed = false and name contains 'mycrmsalon_backup_'"
+        query = f"'{folder_id}' in parents and trashed = false and (name contains 'mycrmsalon_backup_' or name contains 'mycrmsalon_code_')"
         try:
             results = drive_service.files().list(
                 q=query,
@@ -99,7 +111,7 @@ def main():
         except Exception as e:
             print(f"Warning: Failed to cleanup expired backups: {e}")
 
-    print("Backup job completed successfully.")
+    print("All backup and upload tasks completed successfully.")
 
 if __name__ == "__main__":
     main()

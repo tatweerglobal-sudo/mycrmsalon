@@ -1,4 +1,4 @@
-name: Daily Database Backup to Google Drive
+name: Daily Database & Code Backup to Google Drive
 
 on:
   schedule:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   backup:
-    name: Backup Neon to Google Drive
+    name: Backup Neon DB & Source Code to Google Drive
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -37,7 +37,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install google-api-python-client google-auth
 
-      - name: Create Database Dump
+      - name: Create Database Dump & Source Code Archive
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED || secrets.DATABASE_URL }}
         run: |
@@ -47,17 +47,21 @@ jobs:
           fi
 
           TIMESTAMP=$(date -u +"%Y-%m-%d_%H%M%S")
-          BACKUP_FILE="mycrmsalon_backup_${TIMESTAMP}.sql.gz"
+          DB_BACKUP_FILE="mycrmsalon_backup_${TIMESTAMP}.sql.gz"
+          CODE_BACKUP_FILE="mycrmsalon_code_${TIMESTAMP}.zip"
 
-          echo "Starting database dump to ${BACKUP_FILE}..."
-          pg_dump "$DATABASE_URL" --no-owner --no-acl --clean --if-exists | gzip > "${BACKUP_FILE}"
+          echo "1. Starting database dump to ${DB_BACKUP_FILE}..."
+          pg_dump "$DATABASE_URL" --no-owner --no-acl --clean --if-exists | gzip > "${DB_BACKUP_FILE}"
+          echo "Database dump complete. Size: $(du -h ${DB_BACKUP_FILE} | cut -f1)"
 
-          FILE_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
-          echo "Dump completed. File size: ${FILE_SIZE}"
+          echo "2. Starting source code archiving to ${CODE_BACKUP_FILE}..."
+          git archive --format=zip -o "${CODE_BACKUP_FILE}" HEAD
+          echo "Code archive complete. Size: $(du -h ${CODE_BACKUP_FILE} | cut -f1)"
 
-          echo "BACKUP_FILE=${BACKUP_FILE}" >> $GITHUB_ENV
+          echo "DB_BACKUP_FILE=${DB_BACKUP_FILE}" >> $GITHUB_ENV
+          echo "CODE_BACKUP_FILE=${CODE_BACKUP_FILE}" >> $GITHUB_ENV
 
-      - name: Upload to Google Drive
+      - name: Upload Both Backups to Google Drive
         env:
           GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
@@ -66,11 +70,13 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
           RETENTION_DAYS: ${{ github.event.inputs.retention_days || '30' }}
         run: |
-          python3 scripts/backup_to_gdrive.py
+          python3 scripts/backup_to_gdrive.py "${DB_BACKUP_FILE}" "${CODE_BACKUP_FILE}"
 
-      - name: Upload Backup as GitHub Artifact (Fallback)
+      - name: Upload Backups as GitHub Artifacts (Fallback)
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BACKUP_FILE }}
-          path: ${{ env.BACKUP_FILE }}
+          name: mycrmsalon-daily-backups
+          path: |
+            ${{ env.DB_BACKUP_FILE }}
+            ${{ env.CODE_BACKUP_FILE }}
           retention-days: 3
