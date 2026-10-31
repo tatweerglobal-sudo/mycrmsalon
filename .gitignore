@@ -19,3 +19,4 @@ backups/
 .chrome-*/
 test-results/
 cloudflared.exe
+gdrive_tokens.json
