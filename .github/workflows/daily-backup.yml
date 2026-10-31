@@ -1,0 +1,73 @@
+name: Daily Database Backup to Google Drive
+
+on:
+  schedule:
+    # Runs every day at 03:00 UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: 'Number of days to keep backups in Google Drive'
+        required: false
+        default: '30'
+
+concurrency:
+  group: daily-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Backup Neon to Google Drive
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          python -m pip install --upgrade pip
+          pip install google-api-python-client google-auth
+
+      - name: Create Database Dump
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED || secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is not configured in GitHub repository secrets!"
+            exit 1
+          fi
+
+          TIMESTAMP=$(date -u +"%Y-%m-%d_%H%M%S")
+          BACKUP_FILE="mycrmsalon_backup_${TIMESTAMP}.sql.gz"
+
+          echo "Starting database dump to ${BACKUP_FILE}..."
+          pg_dump "$DATABASE_URL" --no-owner --no-acl --clean --if-exists | gzip > "${BACKUP_FILE}"
+
+          FILE_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
+          echo "Dump completed. File size: ${FILE_SIZE}"
+
+          echo "BACKUP_FILE=${BACKUP_FILE}" >> $GITHUB_ENV
+
+      - name: Upload to Google Drive
+        env:
+          GDRIVE_SERVICE_ACCOUNT_KEY: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_KEY }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          RETENTION_DAYS: ${{ github.event.inputs.retention_days || '30' }}
+        run: |
+          python3 scripts/backup_to_gdrive.py
+
+      - name: Upload Backup as GitHub Artifact (Fallback)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BACKUP_FILE }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 3
